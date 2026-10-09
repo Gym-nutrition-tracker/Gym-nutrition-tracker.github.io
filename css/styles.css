@@ -968,6 +968,18 @@ body {
   margin-top: 10px;
 }
 
+/* PROG-02: "Próxima sesión" reutiliza la tarjeta y los colores de badge de
+   "Análisis semanal" (analisis-semana-actual/analisis-stats/analisis-badge);
+   esto es solo el espaciado entre las notas propias de la recomendación. */
+.proxima-sesion-nota {
+  margin-top: 8px;
+}
+
+.proxima-sesion-advertencia {
+  color: #EAB308;
+  font-weight: 600;
+}
+
 .analisis-historial-titulo {
   margin-top: 16px;
   padding-top: 12px;

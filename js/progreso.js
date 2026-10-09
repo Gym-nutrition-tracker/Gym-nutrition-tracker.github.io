@@ -72,6 +72,7 @@ GYMAPP.progreso = (function () {
       '<div class="progreso-columna-principal">' +
       renderSeccionEvolucion(opcionesBloquesEvolucion, opcionesEjerciciosEvolucion) +
       renderSeccionAnalisisSemanal(data) +
+      renderSeccionProximaSesion(data) +
       "</div>" +
       '<div class="progreso-columna-lateral">' +
       renderSeccionCalendario(data) +
@@ -492,6 +493,245 @@ GYMAPP.progreso = (function () {
       if (serie[i].datos.cantidadSesiones > 0) return serie[i];
     }
     return null;
+  }
+
+  /* Cantidad de semanas REALIZADAS (cantidadSesiones > 0) en toda la serie.
+     Es el dato de "cantidad de sesiones reales disponibles" que usa PROG-02
+     para decidir el nivel de confianza (sección 2): no se cuentan sesiones
+     individuales sueltas, sino semanas con al menos una sesión real, que
+     es la misma unidad que ya usan ultimoCambio/tendencia3. */
+  function contarSemanasRealizadas(serie) {
+    return serie.filter(function (e) { return e.datos.cantidadSesiones > 0; }).length;
+  }
+
+  /* PROG-02, sección 8: adherencia baja = 2 o más semanas "0/1 · No
+     realizado" entre las últimas 3 semanas YA CERRADAS (nunca la semana
+     actual, que todavía puede completarse). Esto NUNCA se clasifica como
+     caída de rendimiento: solo limita el techo de la recomendación más
+     abajo (aplicarLimiteAdherencia) y agrega una advertencia aparte. */
+  function calcularAdherenciaBaja(serie) {
+    var cerradas = serie.slice(0, -1).slice(-3);
+    var noRealizadas = cerradas.filter(function (e) { return e.datos.cantidadSesiones === 0; }).length;
+    return noRealizadas >= 2;
+  }
+
+  /* --- PROG-02: motor de recomendación para la próxima sesión ---
+
+     Alcance: función PURA, sin DOM ni storage, que NO reimplementa ni
+     modifica ninguna fórmula de PROG-01/01.1/01.2 (usa sus resultados ya
+     calculados como entrada: último cambio real, tendencia de 3 cambios
+     reales, RPE, volumen de la última sesión realizada, cantidad de
+     semanas realizadas). Devuelve SIEMPRE UN RANGO %, nunca un número
+     exacto, y nunca persiste ni edita nada: es una sugerencia de lectura,
+     no una orden (sección 14). */
+
+  var CONFIANZA_SIN_DATOS = "insuficiente";
+  var CONFIANZA_INICIAL = "inicial";
+  var CONFIANZA_NORMAL = "normal";
+
+  /* Reglas base de progresión (sección 3): categoría según el ÚLTIMO
+     CAMBIO REAL (mismos límites que clasificarProgreso, para que la
+     categoría de la recomendación sea consistente con el badge de
+     "Análisis semanal") y rama según el RPE REAL (nunca se llega acá sin
+     un RPE real: ver reglaBaseSinRpe para cuando no existe). */
+  function reglaBase(ultimoCambio, rpe) {
+    if (ultimoCambio < 0) {
+      if (rpe >= 8) {
+        return { min: -5, max: 0, estado: "Recuperar / consolidar", motivo: "El rendimiento bajó y el esfuerzo de la última sesión ya fue alto: priorizá recuperarte antes de buscar más carga." };
+      }
+      return { min: 0, max: 2, estado: "Recuperar rendimiento", motivo: "El rendimiento bajó, pero el esfuerzo de la última sesión todavía deja algo de margen: buscá recuperar el nivel anterior." };
+    }
+    if (ultimoCambio < 2) {
+      if (rpe <= 7) {
+        return { min: 3, max: 5, estado: "Margen para progresar", motivo: "Venís manteniendo el rendimiento y el esfuerzo de la última sesión fue bajo: hay margen real para progresar." };
+      }
+      if (rpe < 9) {
+        return { min: 1, max: 3, estado: "Progresión moderada", motivo: "Venís manteniendo el rendimiento y el esfuerzo de la última sesión fue moderado-alto: conviene progresar de forma gradual." };
+      }
+      return { min: 0, max: 0, estado: "Mantener", motivo: "El esfuerzo de la última sesión fue muy alto: por ahora conviene mantener el nivel actual." };
+    }
+    if (ultimoCambio <= 5) {
+      if (rpe <= 7) {
+        return { min: 3, max: 5, estado: "Progreso óptimo", motivo: "Venís progresando a buen ritmo y el esfuerzo de la última sesión fue bajo: el margen para seguir avanzando es real." };
+      }
+      if (rpe < 9) {
+        return { min: 1, max: 3, estado: "Progresión moderada", motivo: "Venís progresando, pero el esfuerzo de la última sesión fue moderado-alto: conviene avanzar de forma gradual." };
+      }
+      return { min: 0, max: 1, estado: "Consolidar", motivo: "Venís progresando, pero el esfuerzo de la última sesión fue muy alto: conviene consolidar antes de seguir subiendo." };
+    }
+    if (ultimoCambio <= 8) {
+      if (rpe <= 7) {
+        return { min: 0, max: 2, estado: "Consolidar progreso", motivo: "El último salto de rendimiento fue alto y el esfuerzo todavía deja algo de margen: conviene consolidar antes de seguir subiendo fuerte." };
+      }
+      return { min: 0, max: 0, estado: "Mantener", motivo: "El último salto de rendimiento fue alto y el esfuerzo también fue alto: por ahora conviene mantener el nivel actual." };
+    }
+    // ultimoCambio > 8: nunca recomendar otro salto agresivo inmediatamente.
+    if (rpe >= 8) {
+      return { min: 0, max: 0, estado: "Consolidar salto previo", motivo: "Venís de un salto de rendimiento muy grande: nunca conviene repetir un salto así de inmediato, así que toca consolidar." };
+    }
+    return { min: 0, max: 2, estado: "Consolidar salto previo", motivo: "Venís de un salto de rendimiento muy grande: nunca conviene repetir un salto así de inmediato, así que toca ir despacio." };
+  }
+
+  /* Ajuste 1 del pedido: SIN RPE no se usa ningún proxy numérico (nunca
+     se inventa un RPE real, ni siquiera internamente). En su lugar, un
+     fallback orientativo basado SOLO en el último cambio real, siempre
+     conservador y siempre no-negativo (una caída de rendimiento sin dato
+     de esfuerzo no autoriza a recomendar menos volumen, solo a frenar la
+     progresión). Después se aplican tendencia y adherencia exactamente
+     igual que con RPE conocido. */
+  function reglaBaseSinRpe(ultimoCambio) {
+    if (ultimoCambio < 0) {
+      return { min: 0, max: 1, estado: "Recuperar rendimiento", motivo: "El rendimiento bajó y no tenemos el esfuerzo de la última sesión: conviene ser conservador y priorizar recuperarte." };
+    }
+    if (ultimoCambio < 2) {
+      return { min: 1, max: 3, estado: "Progresión moderada", motivo: "Venís manteniendo el rendimiento; sin el esfuerzo de la última sesión, conviene progresar con cautela." };
+    }
+    if (ultimoCambio <= 5) {
+      return { min: 1, max: 3, estado: "Progresión moderada", motivo: "Venís progresando; sin el esfuerzo de la última sesión, conviene avanzar con cautela." };
+    }
+    if (ultimoCambio <= 8) {
+      return { min: 0, max: 1, estado: "Consolidar progreso", motivo: "El último salto de rendimiento fue alto; sin el esfuerzo de la última sesión, conviene consolidar." };
+    }
+    return { min: 0, max: 0, estado: "Consolidar salto previo", motivo: "Venís de un salto de rendimiento muy grande: nunca conviene repetir un salto así de inmediato, así que toca consolidar." };
+  }
+
+  /* Ajuste 2 del pedido + sección 4 original: la tendencia es un
+     MODIFICADOR del rango base, nunca un objetivo en sí misma (nunca
+     "tendencia +8,5% -> subir +8,5%"). Mismo ajuste mecánico para ambos
+     extremos (techo -2, piso -1) tanto si la tendencia viene muy alta
+     como si viene negativa; entre 0% y +8% no se ajusta nada; sin
+     tendencia (insuficientes datos) no se inventa, tampoco se ajusta.
+
+     `piso` es el límite inferior de la categoría (0 en casi todas; -10
+     solo en la rama de rendimiento en caída con RPE real). La resta
+     mecánica nunca baja de ese piso, PERO si el rango base tenía margen
+     real por encima del piso (max > piso) y la resta lo deja pegado al
+     piso, se conserva al menos 1 punto de ventana en vez de aplanarlo
+     del todo: así un rango angosto como 0% a +2% con tendencia muy alta
+     queda en 0% a +1% (no en 0% a 0%, que es literalmente "Mantener" y
+     significaría otra cosa), y un rango amplio como +3% a +5% sigue
+     dando ~+2% a +3%, igual que antes de este ajuste. */
+  function ajustarPorTendencia(min, max, tendencia3, piso) {
+    if (tendencia3 === null || tendencia3 === undefined) {
+      return { min: min, max: max, notaTendencia: null };
+    }
+    if (!(tendencia3 > 8) && !(tendencia3 < 0)) {
+      return { min: min, max: max, notaTendencia: null };
+    }
+
+    var maxAjustado = Math.max(max - 2, piso);
+    var minAjustado = Math.max(min - 1, piso);
+    if (max > piso && maxAjustado <= piso) maxAjustado = piso + 1;
+    if (minAjustado > maxAjustado) minAjustado = maxAjustado;
+
+    var nota = tendencia3 > 8
+      ? "Venís acumulando progresos rápidos; conviene consolidar."
+      : "La tendencia reciente viene a la baja: conviene ser más conservador.";
+    return { min: minAjustado, max: maxAjustado, notaTendencia: nota };
+  }
+
+  /* Límites de seguridad (secciones 4 y 14): nunca más de +5% como
+     objetivo normal, nunca menos que el piso de la categoría. */
+  function clampRango(min, max, piso) {
+    var minClamp = Math.max(min, piso);
+    var maxClamp = Math.min(max, 5);
+    if (minClamp > maxClamp) minClamp = maxClamp;
+    return { min: minClamp, max: maxClamp };
+  }
+
+  /* Estrategia de "cómo progresar" (sección 7): prioridad repeticiones >
+     carga > series, basada en el RPE real, con un último cambio >8% como
+     override (nunca conviene otro salto agresivo, sea cual sea el RPE) y
+     una rama propia sin inventar esfuerzo cuando no hay RPE disponible.
+     Las series NUNCA se sugieren como primera opción: solo se mencionan
+     aparte, como alternativa de último recurso. */
+  function obtenerAccionSugerida(rpe, ultimoCambio, rpeDisponible) {
+    if (ultimoCambio > 8) {
+      return { corta: "Consolidar antes de aumentar", larga: "Consolidá el nivel actual antes de volver a aumentar." };
+    }
+    if (!rpeDisponible) {
+      return { corta: "Ajuste mínimo", larga: "Sin el esfuerzo de la última sesión, probá una mejora pequeña (1 repetición extra o un aumento mínimo de carga) y prestá atención a tus sensaciones." };
+    }
+    if (rpe <= 7) {
+      return { corta: "↑ Repeticiones o carga", larga: "Intentá primero sumar 1–2 repeticiones en alguna serie o subir ligeramente la carga." };
+    }
+    if (rpe === 8) {
+      return { corta: "↑ Ajuste mínimo", larga: "Buscá una mejora pequeña: 1 repetición extra o un aumento mínimo de carga." };
+    }
+    return { corta: "Mantener técnica", larga: "No agregues volumen por ahora. Intentá repetir el rendimiento con buena técnica." };
+  }
+
+  /* calcularRecomendacionProximaSesion: función pura (sección 3 del
+     pedido). Entrada = los datos que YA calculan PROG-01/01.1/01.2
+     (nunca recalculados ni redefinidos acá); adherenciaBaja es opcional
+     (sección 8), calculada aparte por calcularAdherenciaBaja. */
+  function calcularRecomendacionProximaSesion(input) {
+    var ultimoCambio = input.ultimoCambio;
+    var tendencia3 = input.tendencia3;
+    var rpe = input.rpe;
+    var volumenUltimaSesion = input.volumenUltimaSesion;
+    var cantidadSesiones = input.cantidadSesiones;
+    var adherenciaBaja = !!input.adherenciaBaja;
+
+    /* Sección 2: con 1 sola sesión histórica (o directamente sin cambio
+       real que comparar) no hay base para recomendar nada: se dice así,
+       en vez de inventar una tendencia o un rango. */
+    if (!(cantidadSesiones >= 2) || ultimoCambio === null || ultimoCambio === undefined) {
+      return {
+        confianza: CONFIANZA_SIN_DATOS,
+        mensaje: "Necesitamos al menos 2 sesiones para recomendar una progresión.",
+        rango: null, estado: "Datos insuficientes", motivo: null, notaTendencia: null,
+        accion: null, volumenObjetivo: null, rpeDisponible: typeof rpe === "number", advertenciaAdherencia: null
+      };
+    }
+
+    /* Ajuste 1: sin RPE real, NUNCA se usa un número inventado (ni
+       siquiera internamente) para elegir rama: se usa directamente el
+       fallback de reglaBaseSinRpe, que solo mira el último cambio real y
+       es siempre conservador y no-negativo. El piso para el ajuste por
+       tendencia/clamp es -10 únicamente en la categoría de caída con RPE
+       REAL conocido; en cualquier otro caso (incluido todo el fallback
+       sin RPE, que ya nace no-negativo) el piso es 0. */
+    var rpeDisponible = typeof rpe === "number";
+    var base = rpeDisponible ? reglaBase(ultimoCambio, rpe) : reglaBaseSinRpe(ultimoCambio);
+    var piso = (rpeDisponible && ultimoCambio < 0) ? -10 : 0;
+
+    var ajustado = ajustarPorTendencia(base.min, base.max, tendencia3, piso);
+    var rango = clampRango(ajustado.min, ajustado.max, piso);
+
+    var advertenciaAdherencia = null;
+    if (adherenciaBaja) {
+      var maxLimitado = Math.min(rango.max, 2);
+      rango = { min: Math.min(rango.min, maxLimitado), max: maxLimitado };
+      advertenciaAdherencia = "Antes de aumentar la carga, priorizá recuperar regularidad.";
+    }
+
+    var volumenObjetivo = null;
+    if (typeof volumenUltimaSesion === "number" && volumenUltimaSesion > 0) {
+      volumenObjetivo = {
+        min: Math.round(volumenUltimaSesion * (1 + rango.min / 100)),
+        max: Math.round(volumenUltimaSesion * (1 + rango.max / 100))
+      };
+    }
+
+    /* Ajuste 1 (confianza): sin RPE real se baja un escalón la confianza
+       (normal -> inicial), nunca se sube ni se inventa. "Insuficiente"
+       sigue dependiendo solo de la cantidad de sesiones, nunca del RPE. */
+    var confianzaPorSesiones = cantidadSesiones >= 3 ? CONFIANZA_NORMAL : CONFIANZA_INICIAL;
+    var confianza = rpeDisponible ? confianzaPorSesiones : (confianzaPorSesiones === CONFIANZA_NORMAL ? CONFIANZA_INICIAL : confianzaPorSesiones);
+
+    return {
+      confianza: confianza,
+      mensaje: null,
+      rango: rango,
+      estado: base.estado,
+      motivo: base.motivo,
+      notaTendencia: ajustado.notaTendencia,
+      accion: obtenerAccionSugerida(rpe, ultimoCambio, rpeDisponible),
+      volumenObjetivo: volumenObjetivo,
+      rpeDisponible: rpeDisponible,
+      advertenciaAdherencia: advertenciaAdherencia
+    };
   }
 
   /* --- Series semanales completas por bloque / por ejercicio --- */
@@ -918,6 +1158,122 @@ GYMAPP.progreso = (function () {
     return entrada.cambioPct === null ? "Sin comparación" : formatearPct(entrada.cambioPct);
   }
 
+  /* --- UI: sección "Próxima sesión" (PROG-02) ---
+
+     Vive debajo de "Análisis semanal" y reacciona a la MISMA selección de
+     bloque (estadoAnalisis): no tiene selector propio. Sección 10: con un
+     ejercicio puntual seleccionado nunca se inventa una recomendación por
+     ejercicio todavía (eso es PROG-03) -se avisa explícitamente-, y
+     sección 12: un bloque histórico (ya no activo) muestra el análisis
+     pero nunca una recomendación de próxima sesión, porque ya no hay
+     "próxima sesión" que planificar para un bloque que no se entrena. */
+
+  function renderSeccionProximaSesion(data) {
+    var opcionesBloques = construirOpcionesBloquesAnalisis(data);
+    if (!opcionesBloques.length || !estadoAnalisis.bloqueId) return "";
+
+    var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
+    var cuerpo;
+
+    if (estadoAnalisis.ejercicioId) {
+      cuerpo = '<p class="nota">La recomendación de progresión se calcula por bloque. La recomendación específica por ejercicio llegará en una próxima versión.</p>';
+    } else if (!esActivo) {
+      cuerpo = '<p class="nota">Este bloque ya no forma parte de la rutina actual.</p>';
+    } else {
+      var serieBloque = construirSerieSemanalBloque(data.sesiones_entrenamiento, estadoAnalisis.bloqueId);
+      cuerpo = renderProximaSesionBloque(serieBloque);
+    }
+
+    return (
+      '<div class="progreso-panel progreso-proxima-sesion">' +
+      "<h3>Próxima sesión</h3>" +
+      cuerpo +
+      "</div>"
+    );
+  }
+
+  function renderProximaSesionBloque(serie) {
+    if (!serie.length) {
+      return '<p class="nota">Todavía no hay sesiones registradas para este bloque.</p>';
+    }
+
+    var cantidadRealizadas = contarSemanasRealizadas(serie);
+    var ultimaRealizada = obtenerUltimaSemanaRealizada(serie);
+
+    if (!ultimaRealizada || cantidadRealizadas < 2) {
+      return '<p class="nota">Necesitamos al menos 2 sesiones para recomendar una progresión.</p>';
+    }
+
+    /* Sección 1 y PROG-01.2: nunca se pasa el cambio/tendencia de la serie
+       completa (con huecos), sino los de la última semana REALIZADA, para
+       no usar una semana 0/1 como caída de rendimiento. RPE y volumen
+       también salen de esa misma última semana realizada, nunca de un
+       promedio histórico (sección 5: "no usar RPE promedio histórico"). */
+    var recomendacion = calcularRecomendacionProximaSesion({
+      ultimoCambio: ultimaRealizada.cambioPct,
+      tendencia3: ultimaRealizada.tendencia3,
+      rpe: ultimaRealizada.datos.rpePromedio,
+      volumenUltimaSesion: ultimaRealizada.datos.volumenPromedioPorSesion,
+      cantidadSesiones: cantidadRealizadas,
+      adherenciaBaja: calcularAdherenciaBaja(serie)
+    });
+
+    if (recomendacion.confianza === CONFIANZA_SIN_DATOS) {
+      return '<p class="nota">' + recomendacion.mensaje + "</p>";
+    }
+
+    return renderTarjetaRecomendacion(recomendacion, ultimaRealizada.cambioPct);
+  }
+
+  function formatearPctEntero(n) {
+    var signo = n > 0 ? "+" : "";
+    return signo + Math.round(n) + "%";
+  }
+
+  function formatearRangoPct(rango) {
+    if (rango.min === rango.max) return formatearPctEntero(rango.min);
+    return formatearPctEntero(rango.min) + " a " + formatearPctEntero(rango.max);
+  }
+
+  function formatearRangoVolumen(volumenObjetivo) {
+    if (volumenObjetivo.min === volumenObjetivo.max) return formatearKg(volumenObjetivo.min);
+    return volumenObjetivo.min.toLocaleString("es-AR") + "–" + volumenObjetivo.max.toLocaleString("es-AR") + " kg";
+  }
+
+  /* Badge: reutiliza el MISMO componente visual y los MISMOS 5 colores que
+     "Análisis semanal" (sección 13: "no crear colores nuevos"), coloreado
+     según la categoría del último cambio real (clasificarProgreso), con
+     el texto prescriptivo propio de la recomendación (estado) en vez de
+     la etiqueta descriptiva genérica. */
+  function renderTarjetaRecomendacion(r, ultimoCambio) {
+    var clasif = clasificarProgreso(ultimoCambio);
+    var etiquetaConfianza = r.confianza === CONFIANZA_NORMAL ? "Normal" : "Inicial";
+
+    var filas = [["🎯 Objetivo sugerido", formatearRangoPct(r.rango)]];
+    if (r.volumenObjetivo) {
+      filas.push(["Volumen orientativo", formatearRangoVolumen(r.volumenObjetivo)]);
+    }
+
+    return (
+      '<div class="analisis-semana-actual proxima-sesion-tarjeta">' +
+      '<div class="analisis-stats">' +
+      filas.map(function (f) {
+        return '<div class="analisis-stat"><span class="analisis-stat-label">' + f[0] + '</span><span class="analisis-stat-valor">' + f[1] + "</span></div>";
+      }).join("") +
+      "</div>" +
+      (clasif ? '<div class="analisis-badge analisis-badge-' + clasif.nivel + '">' + clasif.emoji + " " + GYMAPP.util.escapeHtml(r.estado) + "</div>" : "") +
+      '<p class="nota proxima-sesion-nota"><strong>Prioridad:</strong> ' + GYMAPP.util.escapeHtml(r.accion.corta) + "</p>" +
+      '<p class="nota proxima-sesion-nota">' + GYMAPP.util.escapeHtml(r.accion.larga) + "</p>" +
+      '<p class="nota proxima-sesion-nota"><strong>Motivo:</strong> ' + GYMAPP.util.escapeHtml(r.motivo) + (r.notaTendencia ? " " + GYMAPP.util.escapeHtml(r.notaTendencia) : "") + "</p>" +
+      (r.advertenciaAdherencia ? '<p class="nota proxima-sesion-nota proxima-sesion-advertencia">⚠ ' + GYMAPP.util.escapeHtml(r.advertenciaAdherencia) + "</p>" : "") +
+      (!r.rpeDisponible ? '<p class="nota proxima-sesion-nota">RPE no disponible: recomendación con menor confianza.</p>' : "") +
+      '<p class="nota proxima-sesion-nota"><strong>Confianza:</strong> ' + etiquetaConfianza + "</p>" +
+      '<p class="nota proxima-sesion-nota">Considerá una serie adicional solo si varias semanas siguen estancadas y recuperás bien.</p>' +
+      '<p class="nota proxima-sesion-nota">Usá técnica y sensaciones como prioridad. El objetivo es orientativo.</p>' +
+      "</div>"
+    );
+  }
+
   /* --- Calendario (sección) --- */
 
   function renderSeccionCalendario(data) {
@@ -1307,6 +1663,10 @@ GYMAPP.progreso = (function () {
     obtenerUltimaSemanaRealizada: obtenerUltimaSemanaRealizada,
     filasUltimaSemanaRealizadaBloque: filasUltimaSemanaRealizadaBloque,
     filasUltimaSemanaRealizadaEjercicio: filasUltimaSemanaRealizadaEjercicio,
-    formatearCambioHistorial: formatearCambioHistorial
+    formatearCambioHistorial: formatearCambioHistorial,
+    /* PROG-02: expuestas para pruebas unitarias del motor de recomendación. */
+    calcularRecomendacionProximaSesion: calcularRecomendacionProximaSesion,
+    contarSemanasRealizadas: contarSemanasRealizadas,
+    calcularAdherenciaBaja: calcularAdherenciaBaja
   };
 })();
