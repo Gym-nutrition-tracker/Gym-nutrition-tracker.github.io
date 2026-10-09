@@ -883,8 +883,24 @@ body {
   font-size: 0.95rem;
 }
 
-.analisis-muestra-chica {
+/* PROG-01.1: estado semanal del bloque (pendiente/completado/superior a lo
+   planificado), independiente del rótulo "Semana en curso". */
+.analisis-estado-frecuencia {
   margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.analisis-estado-frecuencia-pendiente {
+  color: var(--color-texto-secundario);
+  font-weight: 400;
+}
+
+.analisis-estado-frecuencia-completado {
+  color: #22C55E;
+}
+
+.analisis-estado-frecuencia-superior {
+  color: var(--color-celeste);
 }
 
 .analisis-stats {

@@ -264,6 +264,41 @@ GYMAPP.progreso = (function () {
 
   var estadoAnalisis = { bloqueId: "", ejercicioId: "" };
 
+  /* PROG-01.1: frecuencia semanal esperada por bloque.
+     Contexto de producto: cada día/bloque de la rutina está pensado para
+     hacerse UNA sola vez por semana (una rutina de 3/4/5 días implica 3/4/5
+     bloques, cada uno 1 vez/semana). Por eso 1 sesión esa semana no es una
+     "muestra chica": es la ejecución completa de ese bloque. Fija en 1 por
+     ahora, a propósito (sección 1: "no agregar todavía configuración
+     manual de frecuencia"); el día que exista frecuencia configurable por
+     bloque, este valor pasa a leerse de ahí sin tocar el resto de la
+     lógica de abajo. */
+  var FRECUENCIA_ESPERADA_SEMANAL = 1;
+
+  /* Un bloque histórico (ya eliminado de la rutina actual) sigue
+     analizándose igual (sección 1: "seguir analizándolos"), pero nunca se
+     le asume una frecuencia esperada: no sabemos con qué cadencia se
+     entrenaba en su momento, así que nunca se etiqueta como
+     "pendiente"/"completado" (eso implicaría inventar un dato). */
+  function bloqueEsActivo(data, bloqueId) {
+    return data.rutina.dias.some(function (d) { return d.id === bloqueId; });
+  }
+
+  /* Estado semanal del bloque (sección 2), independiente de la vista
+     (bloque o ejercicio: ambas comparten la misma cadencia esperada,
+     porque un ejercicio solo se registra cuando se entrena su bloque).
+     null cuando el bloque es histórico (frecuencia no disponible). */
+  function obtenerEstadoFrecuenciaSemanal(cantidadSesiones, esActivo) {
+    if (!esActivo) return null;
+    if (cantidadSesiones === 0) {
+      return { tipo: "pendiente", texto: "Pendiente esta semana" };
+    }
+    if (cantidadSesiones === FRECUENCIA_ESPERADA_SEMANAL) {
+      return { tipo: "completado", texto: "✓ Sesión semanal completada" };
+    }
+    return { tipo: "superior", texto: cantidadSesiones + " sesiones esta semana · frecuencia superior a la planificada" };
+  }
+
   /* Lunes=0 ya existe como diaDeSemanaLunesPrimero(date) más abajo en el
      archivo (declarado con function, por lo que el hoisting lo deja
      disponible acá arriba sin problema). */
@@ -563,13 +598,15 @@ GYMAPP.progreso = (function () {
     var nombreBloque = opcionesBloques.filter(function (o) { return o.id === estadoAnalisis.bloqueId; })[0].nombre;
     var cuerpo;
 
+    var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
+
     if (estadoAnalisis.ejercicioId) {
       var nombreEjercicio = opcionesEjercicios.filter(function (o) { return o.id === estadoAnalisis.ejercicioId; })[0].nombre;
       var serieEjercicio = construirSerieSemanalEjercicio(data.sesiones_entrenamiento, estadoAnalisis.ejercicioId);
-      cuerpo = renderAnalisisEjercicio(nombreEjercicio, serieEjercicio);
+      cuerpo = renderAnalisisEjercicio(nombreEjercicio, serieEjercicio, esActivo);
     } else {
       var serieBloque = construirSerieSemanalBloque(data.sesiones_entrenamiento, estadoAnalisis.bloqueId);
-      cuerpo = renderAnalisisBloque(nombreBloque, serieBloque);
+      cuerpo = renderAnalisisBloque(nombreBloque, serieBloque, esActivo);
     }
 
     return (
@@ -605,80 +642,136 @@ GYMAPP.progreso = (function () {
     return selectBloque + selectEjercicio;
   }
 
-  function renderAnalisisBloque(nombreBloque, serie) {
+  /* Filas de volumen para la vista por BLOQUE (secciones 4 y 5). Con
+     exactamente 1 sesión (el caso normal para un bloque 1x/semana),
+     volumen_total y volumen_promedio_por_sesión son matemáticamente el
+     mismo número: se muestran una sola vez como "Volumen de la sesión" en
+     vez de duplicarlos. Con 0 o >1 sesión, sí tiene sentido mostrar los
+     números por separado (sección 4: con >1 sesión, promedio/sesión vuelve
+     a ser la métrica de comparación de rendimiento). */
+  function filasVolumenBloque(datosSemana) {
+    if (datosSemana.cantidadSesiones === 0) return [["Sesiones", "0"]];
+    if (datosSemana.cantidadSesiones === 1) return [["Volumen de la sesión", formatearKg(datosSemana.volumenTotal)]];
+    return [
+      ["Sesiones", String(datosSemana.cantidadSesiones)],
+      ["Volumen total", formatearKg(datosSemana.volumenTotal)],
+      ["Promedio/sesión", formatearKg(datosSemana.volumenPromedioPorSesion)]
+    ];
+  }
+
+  function filasVolumenEjercicio(datosSemana) {
+    if (datosSemana.cantidadSesiones === 0) return [["Sesiones", "0"]];
+    var filas = [
+      ["Peso máximo", formatearKg(datosSemana.pesoMaximo)],
+      ["Reps totales", String(datosSemana.repsTotales)]
+    ];
+    if (datosSemana.cantidadSesiones === 1) {
+      filas.push(["Volumen de la sesión", formatearKg(datosSemana.volumenTotal)]);
+    } else {
+      filas.unshift(["Sesiones", String(datosSemana.cantidadSesiones)]);
+      filas.push(["Volumen total", formatearKg(datosSemana.volumenTotal)]);
+      filas.push(["Promedio/sesión", formatearKg(datosSemana.volumenPromedioPorSesion)]);
+    }
+    return filas;
+  }
+
+  /* Con 1 sola sesión, "RPE promedio" es literal pero suena raro (es el
+     RPE de esa única sesión): se etiqueta simplemente "RPE". */
+  function filaRpe(datosSemana) {
+    var etiqueta = datosSemana.cantidadSesiones === 1 ? "RPE" : "RPE promedio";
+    return [etiqueta, datosSemana.rpePromedio !== null ? datosSemana.rpePromedio.toFixed(1).replace(".", ",") : "—"];
+  }
+
+  /* Historial (sección 6) para un bloque ACTIVO (frecuencia esperada
+     conocida = 1): expresa cada semana como "N/esperadas", con ✓ cuando se
+     cumplió exactamente, y "No realizado" cuando fue 0. */
+  function extractorHistorialActivo(entrada) {
+    var n = entrada.datos.cantidadSesiones;
+    if (n === 0) return ["0/" + FRECUENCIA_ESPERADA_SEMANAL + " · No realizado"];
+    if (n === FRECUENCIA_ESPERADA_SEMANAL) {
+      return ["✓ " + n + "/" + FRECUENCIA_ESPERADA_SEMANAL + " sesión", formatearKg(entrada.datos.volumenTotal)];
+    }
+    return [n + "/" + FRECUENCIA_ESPERADA_SEMANAL + " sesiones", "promedio " + formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"];
+  }
+
+  /* Historial para un bloque HISTÓRICO (sin frecuencia esperada conocida):
+     se mantiene el formato original, sin ninguna fracción "N/esperadas" ni
+     lenguaje de "completado/pendiente" que supondría una cadencia que no
+     podemos confirmar. */
+  function extractorHistorialGenerico(entrada) {
+    return [
+      entrada.datos.cantidadSesiones === 1 ? "1 sesión" : entrada.datos.cantidadSesiones + " sesiones",
+      formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"
+    ];
+  }
+
+  function renderAnalisisBloque(nombreBloque, serie, esActivo) {
     if (!serie.length) {
       return '<p class="nota">Todavía no hay sesiones registradas para este bloque.</p>';
     }
 
     var actual = serie[serie.length - 1];
     var clasificacion = clasificarProgreso(actual.cambioPct);
+    var estadoFrecuencia = obtenerEstadoFrecuenciaSemanal(actual.datos.cantidadSesiones, esActivo);
+    var filas = filasVolumenBloque(actual.datos).concat([filaRpe(actual.datos)]);
 
     return (
-      renderResumenSemanaActual(nombreBloque, actual, clasificacion, [
-        ["Sesiones", String(actual.datos.cantidadSesiones)],
-        ["Volumen total", formatearKg(actual.datos.volumenTotal)],
-        ["Promedio/sesión", formatearKg(actual.datos.volumenPromedioPorSesion)],
-        ["RPE promedio", actual.datos.rpePromedio !== null ? actual.datos.rpePromedio.toFixed(1).replace(".", ",") : "—"]
-      ]) +
-      renderHistorialSemanal(serie, function (entrada) {
-        return [
-          entrada.datos.cantidadSesiones === 1 ? "1 sesión" : entrada.datos.cantidadSesiones + " sesiones",
-          formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"
-        ];
-      })
+      renderResumenSemanaActual(nombreBloque, actual, clasificacion, filas, estadoFrecuencia) +
+      renderHistorialSemanal(serie, esActivo ? extractorHistorialActivo : extractorHistorialGenerico)
     );
   }
 
-  function renderAnalisisEjercicio(nombreEjercicio, serie) {
+  function renderAnalisisEjercicio(nombreEjercicio, serie, esActivo) {
     if (!serie.length) {
       return '<p class="nota">Todavía no hay registros de este ejercicio.</p>';
     }
 
     var actual = serie[serie.length - 1];
     var clasificacion = clasificarProgreso(actual.cambioPct);
+    var estadoFrecuencia = obtenerEstadoFrecuenciaSemanal(actual.datos.cantidadSesiones, esActivo);
 
     return (
-      renderResumenSemanaActual(nombreEjercicio, actual, clasificacion, [
-        ["Sesiones", String(actual.datos.cantidadSesiones)],
-        ["Peso máximo", formatearKg(actual.datos.pesoMaximo)],
-        ["Reps totales", String(actual.datos.repsTotales)],
-        ["Volumen total", formatearKg(actual.datos.volumenTotal)],
-        ["Promedio/sesión", formatearKg(actual.datos.volumenPromedioPorSesion)]
-      ]) +
+      renderResumenSemanaActual(nombreEjercicio, actual, clasificacion, filasVolumenEjercicio(actual.datos), estadoFrecuencia) +
       '<p class="nota analisis-nota-rpe">El RPE se registra por sesión completa, no por ejercicio: por eso no se muestra acá.</p>' +
-      renderHistorialSemanal(serie, function (entrada) {
-        return [
-          entrada.datos.cantidadSesiones === 1 ? "1 sesión" : entrada.datos.cantidadSesiones + " sesiones",
-          formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"
-        ];
-      })
+      renderHistorialSemanal(serie, esActivo ? extractorHistorialActivo : extractorHistorialGenerico)
     );
   }
 
-  /* "Semana en curso" (sección 1 de los ajustes mínimos pedidos): aclaración
-     puramente de UX, no cambia ningún cálculo ni clasificación. `actual` es
-     casi siempre la semana que contiene hoy (así se construye la serie),
-     pero se verifica explícitamente por fecha en vez de asumir la posición
-     en el array, para que el rótulo sea siempre correcto. */
+  /* "Semana en curso" (PROG-01, ajuste mínimo): aclaración puramente de UX,
+     no cambia ningún cálculo ni clasificación. `actual` es casi siempre la
+     semana que contiene hoy (así se construye la serie), pero se verifica
+     explícitamente por fecha en vez de asumir la posición en el array,
+     para que el rótulo sea siempre correcto.
+     PROG-01.1 separa esto del ESTADO del bloque (pendiente/completado/
+     superior a lo planificado, ver obtenerEstadoFrecuenciaSemanal): ambas
+     cosas son independientes y pueden ser verdad al mismo tiempo (ej.
+     "Semana en curso" + "Sesión semanal completada ✓"). */
   function esSemanaEnCurso(semanaISO) {
     return semanaISO === inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(new Date()));
   }
 
-  function renderResumenSemanaActual(titulo, entradaActual, clasificacion, filas) {
-    var muestraChica = entradaActual.datos.cantidadSesiones === 1;
+  function renderResumenSemanaActual(titulo, entradaActual, clasificacion, filas, estadoFrecuencia) {
     var etiquetaSemana = esSemanaEnCurso(entradaActual.semana) ? "Semana en curso" : formatearRangoSemana(entradaActual.semana);
 
     return (
       '<div class="analisis-semana-actual">' +
       '<h4 class="analisis-semana-actual-titulo">' + GYMAPP.util.escapeHtml(titulo) + " · " + etiquetaSemana + "</h4>" +
-      (muestraChica ? '<p class="nota analisis-muestra-chica">Muestra chica: solo 1 sesión esta semana.</p>' : "") +
+      (estadoFrecuencia
+        ? '<p class="nota analisis-estado-frecuencia analisis-estado-frecuencia-' + estadoFrecuencia.tipo + '">' + estadoFrecuencia.texto + "</p>"
+        : "") +
       '<div class="analisis-stats">' +
       filas.map(function (f) {
         return '<div class="analisis-stat"><span class="analisis-stat-label">' + f[0] + '</span><span class="analisis-stat-valor">' + f[1] + "</span></div>";
       }).join("") +
-      '<div class="analisis-stat"><span class="analisis-stat-label">Cambio semanal</span><span class="analisis-stat-valor">' +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Cambio vs semana anterior</span><span class="analisis-stat-valor">' +
       (entradaActual.cambioPct === null ? "Sin comparación" : formatearPct(entradaActual.cambioPct)) +
       "</span></div>" +
+      /* Tendencia 3 semanas (sección 7): es una métrica DESCRIPTIVA del
+         comportamiento reciente, no un objetivo. Un salto puntual grande
+         en una sola semana (ej. +19,5%) puede inflar este promedio muy por
+         encima de lo sostenible; PROG-02 (recomendaciones) NO debe tomar
+         este número como el % a aplicar la próxima semana. Acá solo se
+         muestra como contexto, nunca como instrucción. */
       '<div class="analisis-stat"><span class="analisis-stat-label">Tendencia 3 semanas</span><span class="analisis-stat-valor">' +
       (entradaActual.tendencia3 === null ? "Datos insuficientes" : formatearPct(entradaActual.tendencia3) + "/sem") +
       "</span></div>" +
@@ -1095,6 +1188,11 @@ GYMAPP.progreso = (function () {
     construirSerieSemanalEjercicio: construirSerieSemanalEjercicio,
     construirOpcionesBloquesAnalisis: construirOpcionesBloquesAnalisis,
     construirOpcionesEjerciciosDeBloque: construirOpcionesEjerciciosDeBloque,
-    esSemanaEnCurso: esSemanaEnCurso
+    esSemanaEnCurso: esSemanaEnCurso,
+    /* PROG-01.1: expuestas para pruebas unitarias de cálculo puro. */
+    bloqueEsActivo: bloqueEsActivo,
+    obtenerEstadoFrecuenciaSemanal: obtenerEstadoFrecuenciaSemanal,
+    filasVolumenBloque: filasVolumenBloque,
+    filasVolumenEjercicio: filasVolumenEjercicio
   };
 })();
