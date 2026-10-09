@@ -903,6 +903,10 @@ body {
   color: var(--color-celeste);
 }
 
+.analisis-ultima-realizada {
+  font-style: italic;
+}
+
 .analisis-stats {
   display: flex;
   flex-direction: column;

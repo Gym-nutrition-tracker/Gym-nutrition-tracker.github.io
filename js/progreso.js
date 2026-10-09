@@ -4,37 +4,39 @@ var GYMAPP = window.GYMAPP || (window.GYMAPP = {});
 GYMAPP.progreso = (function () {
   var DIAS_SEMANA = ["L", "M", "M", "J", "V", "S", "D"];
 
-  /* seleccionTipo: "ejercicio" | "dia". Ante selección inválida/vacía, se
-     prioriza "ejercicio" como valor por defecto (PRO-04, sin cambios) aunque
-     el selector (PRO-05) liste primero los días de rutina. */
-  var estado = { seleccionTipo: "ejercicio", seleccionId: "", metrica: "peso_maximo", mesActual: inicioDeMes(new Date()) };
+  /* PROG-01.2 Parte B: jerarquía bloque -> ejercicio (opcional), igual que
+     en "Análisis semanal" (estadoAnalisis más abajo). bloqueId siempre
+     tiene un valor (el primer bloque ACTIVO de la rutina por defecto,
+     nunca un ejercicio suelto ni el primero "porque sí" -podía ser
+     movilidad/calentamiento-); ejercicioId vacío significa "Todo el
+     bloque" (vista agregada), que es el valor por defecto. */
+  var estado = { bloqueId: "", ejercicioId: "", metrica: "volumen_total", mesActual: inicioDeMes(new Date()) };
 
   function render(container) {
     var data = GYMAPP.storage.getData();
-    var opcionesEjercicio = construirOpcionesEjercicio(data);
-    var opcionesDias = construirOpcionesDias(data);
+    var opcionesBloquesEvolucion = construirOpcionesBloquesAnalisis(data);
 
-    var seleccionValida =
-      estado.seleccionId &&
-      ((estado.seleccionTipo === "dia" && opcionesDias.some(function (o) { return o.id === estado.seleccionId; })) ||
-        (estado.seleccionTipo === "ejercicio" && opcionesEjercicio.some(function (o) { return o.id === estado.seleccionId; })));
+    if (!estado.bloqueId || !opcionesBloquesEvolucion.some(function (o) { return o.id === estado.bloqueId; })) {
+      estado.bloqueId = opcionesBloquesEvolucion.length ? primerBloqueActivoOInicial(data, opcionesBloquesEvolucion) : "";
+      estado.ejercicioId = "";
+    }
 
-    if (!seleccionValida) {
-      if (opcionesEjercicio.length) {
-        estado.seleccionTipo = "ejercicio";
-        estado.seleccionId = opcionesEjercicio[0].id;
-      } else if (opcionesDias.length) {
-        estado.seleccionTipo = "dia";
-        estado.seleccionId = opcionesDias[0].id;
-      } else {
-        estado.seleccionTipo = "ejercicio";
-        estado.seleccionId = "";
-      }
+    var opcionesEjerciciosEvolucion = construirOpcionesEjerciciosDeBloque(data, estado.bloqueId);
+    if (estado.ejercicioId && !opcionesEjerciciosEvolucion.some(function (o) { return o.id === estado.ejercicioId; })) {
+      estado.ejercicioId = "";
+    }
+
+    /* "Todo el bloque" solo tiene sentido con Volumen total (sección 10:
+       peso máximo/repeticiones agregados de ejercicios distintos no
+       significan nada). Al elegir un ejercicio concreto, volumen_total
+       sigue siendo válido, así que no se fuerza ningún cambio ahí. */
+    if (!estado.ejercicioId && estado.metrica !== "volumen_total") {
+      estado.metrica = "volumen_total";
     }
 
     var rachas = calcularRachas(obtenerDiasActivosOrdenados(data.sesiones_entrenamiento));
 
-    container.innerHTML = template(data, opcionesDias, opcionesEjercicio, rachas);
+    container.innerHTML = template(data, opcionesBloquesEvolucion, opcionesEjerciciosEvolucion, rachas);
     if (!container.dataset.progresoBound) {
       bindEventos(container);
       container.dataset.progresoBound = "1";
@@ -42,31 +44,14 @@ GYMAPP.progreso = (function () {
     dibujarGrafico(container, data);
   }
 
-  /* --- Datos para el selector de ejercicio --- */
-
-  function construirOpcionesEjercicio(data) {
-    var mapa = {};
-    data.rutina.dias.forEach(function (dia) {
-      dia.ejercicios.forEach(function (ej) {
-        mapa[ej.id] = ej.nombre || "(sin nombre)";
-      });
-    });
-    data.sesiones_entrenamiento.forEach(function (s) {
-      (s.ejercicios_realizados || []).forEach(function (er) {
-        if (!mapa[er.ejercicio_id]) mapa[er.ejercicio_id] = "Ejercicio eliminado de la rutina";
-      });
-    });
-    return Object.keys(mapa).map(function (id) { return { id: id, nombre: mapa[id] }; });
-  }
-
-  /* --- Datos para el selector de día de rutina (PRO-05) ---
-     Solo días vigentes en la rutina actual: a diferencia de los ejercicios,
-     no se reconstruyen días eliminados a partir del historial, porque el
-     pedido no lo exige y evita inventar un concepto ("día eliminado") que
-     no existía en el esquema. */
-
-  function construirOpcionesDias(data) {
-    return data.rutina.dias.map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
+  /* Primer bloque ACTIVO de la rutina (sección 9: nunca el primer
+     ejercicio, que podía ser movilidad/calentamiento). Si no hay ningún
+     bloque activo (rutina vacía) pero sí históricos, cae al primero de
+     las opciones disponibles, igual criterio que ya usa
+     renderSeccionAnalisisSemanal para no dejar la sección sin selección. */
+  function primerBloqueActivoOInicial(data, opcionesBloques) {
+    if (data.rutina.dias.length) return data.rutina.dias[0].id;
+    return opcionesBloques[0].id;
   }
 
   /* --- Templates ---
@@ -76,7 +61,7 @@ GYMAPP.progreso = (function () {
      calendario+historial en una columna lateral (ver .progreso-layout en
      styles.css). */
 
-  function template(data, opcionesDias, opcionesEjercicio, rachas) {
+  function template(data, opcionesBloquesEvolucion, opcionesEjerciciosEvolucion, rachas) {
     var sesiones = data.sesiones_entrenamiento;
 
     return (
@@ -85,7 +70,7 @@ GYMAPP.progreso = (function () {
       renderResumenGeneral(sesiones, rachas) +
       '<div class="progreso-layout">' +
       '<div class="progreso-columna-principal">' +
-      renderSeccionEvolucion(opcionesDias, opcionesEjercicio) +
+      renderSeccionEvolucion(opcionesBloquesEvolucion, opcionesEjerciciosEvolucion) +
       renderSeccionAnalisisSemanal(data) +
       "</div>" +
       '<div class="progreso-columna-lateral">' +
@@ -123,110 +108,98 @@ GYMAPP.progreso = (function () {
     );
   }
 
-  /* --- Evolución por ejercicio --- */
+  /* --- Evolución: jerarquía bloque -> ejercicio (opcional) ---
+     PROG-01.2 Parte B: antes, esta sección abría por defecto en el primer
+     ejercicio de la rutina (podía ser movilidad/abdominales, sin
+     progresión útil). Ahora replica la jerarquía de "Análisis semanal":
+     primero se elige el bloque/día de rutina (por defecto el primero
+     activo), y opcionalmente un ejercicio puntual de ese bloque (por
+     defecto "Todo el bloque", viendo el volumen agregado). */
 
-  function renderSeccionEvolucion(opcionesDias, opcionesEjercicio) {
-    if (!opcionesDias.length && !opcionesEjercicio.length) {
+  function renderSeccionEvolucion(opcionesBloques, opcionesEjercicios) {
+    if (!opcionesBloques.length) {
       return (
-        '<div class="progreso-panel">' +
+        '<div class="progreso-panel progreso-evolucion">' +
         "<h3>Evolución</h3>" +
         '<p class="nota">Todavía no hay ejercicios en tu rutina ni en tu historial.</p>' +
         "</div>"
       );
     }
 
-    var selectorPrincipal = renderSelectorPrincipal(opcionesDias, opcionesEjercicio);
-    var cuerpo = estado.seleccionTipo === "dia" ? renderVistaDia() : renderVistaEjercicio();
+    var selectores = renderSelectorBloqueEjercicio(
+      "select-evolucion-bloque", "select-evolucion-ejercicio",
+      opcionesBloques, opcionesEjercicios, estado.bloqueId, estado.ejercicioId
+    );
 
     return (
       '<div class="progreso-panel progreso-evolucion">' +
       "<h3>Evolución</h3>" +
-      selectorPrincipal +
-      cuerpo +
+      selectores +
+      renderVistaEvolucion(!!estado.ejercicioId) +
       "</div>"
     );
   }
 
-  /* Selector unificado (PRO-05): un solo <select>, con los días de rutina
-     agrupados primero y los ejercicios debajo. Los valores de ejercicio se
-     mantienen SIN prefijo (igual que antes de PRO-05) para no romper
-     integraciones existentes que seleccionan por id de ejercicio; los
-     valores de día llevan el prefijo "dia:" para distinguirse en el
-     handler de "change" sin ambigüedad posible con un id de ejercicio. */
-  function renderSelectorPrincipal(opcionesDias, opcionesEjercicio) {
-    var gruposDias = opcionesDias.length
-      ? '<optgroup label="Días de rutina">' +
-        opcionesDias.map(function (o) {
-          var seleccionado = estado.seleccionTipo === "dia" && estado.seleccionId === o.id;
-          return '<option value="dia:' + o.id + '"' + (seleccionado ? " selected" : "") + ">" +
+  /* Markup de los dos <select> (bloque + ejercicio opcional), compartido
+     entre Evolución y "Análisis semanal" (misma jerarquía, sección 9 del
+     pedido: "igual que en Análisis semanal"). Los ids se parametrizan
+     porque ambas secciones conviven en la misma pantalla. */
+  function renderSelectorBloqueEjercicio(idSelectBloque, idSelectEjercicio, opcionesBloques, opcionesEjercicios, bloqueSeleccionado, ejercicioSeleccionado) {
+    var selectBloque =
+      '<div class="campo"><label for="' + idSelectBloque + '">Bloque / día de rutina</label>' +
+      '<select id="' + idSelectBloque + '">' +
+      opcionesBloques.map(function (o) {
+        return '<option value="' + o.id + '"' + (o.id === bloqueSeleccionado ? " selected" : "") + ">" +
+          GYMAPP.util.escapeHtml(o.nombre) + "</option>";
+      }).join("") +
+      "</select></div>";
+
+    var selectEjercicio = opcionesEjercicios.length
+      ? '<div class="campo"><label for="' + idSelectEjercicio + '">Ejercicio (opcional)</label>' +
+        '<select id="' + idSelectEjercicio + '">' +
+        '<option value=""' + (!ejercicioSeleccionado ? " selected" : "") + ">Todo el bloque</option>" +
+        opcionesEjercicios.map(function (o) {
+          return '<option value="' + o.id + '"' + (o.id === ejercicioSeleccionado ? " selected" : "") + ">" +
             GYMAPP.util.escapeHtml(o.nombre) + "</option>";
         }).join("") +
-        "</optgroup>"
+        "</select></div>"
       : "";
 
-    var gruposEjercicios = opcionesEjercicio.length
-      ? '<optgroup label="Ejercicios">' +
-        opcionesEjercicio.map(function (o) {
-          var seleccionado = estado.seleccionTipo === "ejercicio" && estado.seleccionId === o.id;
-          return '<option value="' + o.id + '"' + (seleccionado ? " selected" : "") + ">" +
-            GYMAPP.util.escapeHtml(o.nombre) + "</option>";
-        }).join("") +
-        "</optgroup>"
-      : "";
-
-    return (
-      '<div class="campo"><label for="select-progreso-ejercicio">Ver progreso de</label>' +
-      '<select id="select-progreso-ejercicio">' + gruposDias + gruposEjercicios + "</select></div>"
-    );
+    return selectBloque + selectEjercicio;
   }
 
-  function renderVistaEjercicio() {
+  /* Con "Todo el bloque" (ejercicioSeleccionado=false) solo tiene sentido
+     Volumen total (sección 10: peso máximo/repeticiones agregados de
+     ejercicios distintos no significan nada); con un ejercicio puntual
+     reaparecen las 3 métricas de siempre (PRO-04, sin cambios). El texto
+     informativo de cantidad de sesiones (sección "para este día") solo se
+     muestra en la vista de bloque, igual que antes de esta tarea. */
+  function renderVistaEvolucion(ejercicioSeleccionado) {
+    var tabs = ejercicioSeleccionado
+      ? botonMetrica("peso_maximo", "Peso máximo") + botonMetrica("repeticiones", "Repeticiones") + botonMetrica("volumen_total", "Volumen total")
+      : botonMetrica("volumen_total", "Volumen total");
+
     return (
-      '<div class="selector-tipo metrica-selector">' +
-      botonMetrica("peso_maximo", "Peso máximo") +
-      botonMetrica("repeticiones", "Repeticiones") +
-      botonMetrica("volumen_total", "Volumen total") +
-      "</div>" +
+      '<div class="selector-tipo metrica-selector">' + tabs + "</div>" +
+      (ejercicioSeleccionado ? "" : '<p id="progreso-dia-info" class="nota oculto"></p>') +
       '<div class="grafico-contenedor grafico-contenedor-grande"><canvas id="grafico-progreso"></canvas></div>' +
-      renderEstadoVacioGrafico()
+      renderEstadoVacioEvolucion(ejercicioSeleccionado)
     );
   }
 
-  function renderEstadoVacioGrafico() {
+  function renderEstadoVacioEvolucion(ejercicioSeleccionado) {
+    var titulo = ejercicioSeleccionado
+      ? "Todavía no hay registros para este ejercicio"
+      : "Todavía no hay sesiones registradas para este bloque";
+    var ayuda = ejercicioSeleccionado
+      ? "Cargá una sesión de gimnasio con este ejercicio en la pestaña Entrenar para ver su evolución acá."
+      : "Cargá una sesión de gimnasio para este bloque en la pestaña Entrenar para ver su evolución acá.";
+
     return (
       '<div id="progreso-grafico-vacio" class="progreso-estado-vacio oculto">' +
       '<span class="progreso-estado-vacio-icono" aria-hidden="true">📉</span>' +
-      '<p class="progreso-estado-vacio-titulo">Todavía no hay registros para este ejercicio</p>' +
-      '<p class="nota">Cargá una sesión de gimnasio con este ejercicio en la pestaña Entrenar para ver su evolución acá.</p>' +
-      "</div>"
-    );
-  }
-
-  /* --- Evolución por día de rutina (PRO-05) ---
-     Reutiliza exactamente las mismas 3 métricas (peso máximo, repeticiones,
-     volumen total) que la vista por ejercicio, agregadas sobre TODAS las
-     series de TODOS los ejercicios realizados en cada sesión de ese día.
-     No se agregan datos nuevos: todo sale de sesiones_entrenamiento. */
-
-  function renderVistaDia() {
-    return (
-      '<div class="selector-tipo metrica-selector">' +
-      botonMetrica("peso_maximo", "Peso máximo") +
-      botonMetrica("repeticiones", "Repeticiones") +
-      botonMetrica("volumen_total", "Volumen total") +
-      "</div>" +
-      '<p id="progreso-dia-info" class="nota oculto"></p>' +
-      '<div class="grafico-contenedor grafico-contenedor-grande"><canvas id="grafico-progreso"></canvas></div>' +
-      renderEstadoVacioDia()
-    );
-  }
-
-  function renderEstadoVacioDia() {
-    return (
-      '<div id="progreso-grafico-vacio" class="progreso-estado-vacio oculto">' +
-      '<span class="progreso-estado-vacio-icono" aria-hidden="true">📉</span>' +
-      '<p class="progreso-estado-vacio-titulo">Todavía no hay sesiones registradas para este día</p>' +
-      '<p class="nota">Cargá una sesión de gimnasio para este día en la pestaña Entrenar para ver su evolución acá.</p>' +
+      '<p class="progreso-estado-vacio-titulo">' + titulo + "</p>" +
+      '<p class="nota">' + ayuda + "</p>" +
       "</div>"
     );
   }
@@ -470,6 +443,57 @@ GYMAPP.progreso = (function () {
     return conCambios;
   }
 
+  /* --- PROG-01.2: separar ADHERENCIA de RENDIMIENTO ---
+
+     Problema que corrige: agregarCambiosYTendencia (arriba) compara cada
+     semana contra la INMEDIATAMENTE ANTERIOR del arreglo que recibe. Si
+     ese arreglo es la serie completa (con huecos en 0 para semanas sin
+     sesión, generados por generarRangoSemanas), una semana todavía no
+     entrenada -o una semana pasada que quedó en 0- termina comparándose
+     contra un volumen 0 que nunca fue una sesión real, dando un falso
+     -100% y una clasificación "Caída" que no mide nada.
+
+     ADHERENCIA (¿se cumplió la frecuencia esperada?) y RENDIMIENTO (¿cómo
+     varió el volumen entre sesiones reales?) son preguntas distintas:
+     - ADHERENCIA sigue viéndose en la serie completa (con huecos), vía
+       obtenerEstadoFrecuenciaSemanal y el historial semanal: una semana
+       en 0 se muestra como "Pendiente esta semana" / "0/1 · No
+       realizado", sin que eso desaparezca.
+     - RENDIMIENTO (cambioPct, tendencia3, clasificación) se calcula
+       SOLO sobre las semanas con cantidadSesiones > 0, en orden
+       cronológico: dos sesiones reales separadas por una semana en 0 se
+       comparan entre sí (la semana en 0 nunca entra como "0 kg"), y la
+       tendencia de 3 ignora las semanas no realizadas. */
+  function combinarAdherenciaYRendimiento(serieCompleta, extractorValor) {
+    var realizadas = serieCompleta.filter(function (e) { return e.datos.cantidadSesiones > 0; });
+    var realizadasConCambios = agregarCambiosYTendencia(realizadas, extractorValor);
+
+    var mapaRendimiento = {};
+    realizadasConCambios.forEach(function (e) { mapaRendimiento[e.semana] = e; });
+
+    return serieCompleta.map(function (entrada) {
+      var r = mapaRendimiento[entrada.semana];
+      return {
+        semana: entrada.semana,
+        datos: entrada.datos,
+        /* null (nunca -100% inventado) cuando la semana no fue realizada. */
+        cambioPct: r ? r.cambioPct : null,
+        tendencia3: r ? r.tendencia3 : null
+      };
+    });
+  }
+
+  /* Última semana con al menos 1 sesión real, recorriendo la serie de atrás
+     para adelante. Se usa cuando la semana actual todavía está pendiente
+     (sección 5 del pedido): el rendimiento que se muestra es el de la
+     última sesión real, nunca el de una semana vacía. */
+  function obtenerUltimaSemanaRealizada(serie) {
+    for (var i = serie.length - 1; i >= 0; i--) {
+      if (serie[i].datos.cantidadSesiones > 0) return serie[i];
+    }
+    return null;
+  }
+
   /* --- Series semanales completas por bloque / por ejercicio --- */
 
   function construirSerieSemanalBloque(sesiones, bloqueId) {
@@ -493,7 +517,7 @@ GYMAPP.progreso = (function () {
       return { semana: semana, datos: calcularMetricasSemanaBloque(porSemana[semana] || []) };
     });
 
-    return agregarCambiosYTendencia(serieBase, function (d) { return d.volumenPromedioPorSesion; });
+    return combinarAdherenciaYRendimiento(serieBase, function (d) { return d.volumenPromedioPorSesion; });
   }
 
   function construirSerieSemanalEjercicio(sesiones, ejercicioId) {
@@ -519,7 +543,7 @@ GYMAPP.progreso = (function () {
       return { semana: semana, datos: calcularMetricasSemanaEjercicio(porSemana[semana] || []) };
     });
 
-    return agregarCambiosYTendencia(serieBase, function (d) { return d.volumenPromedioPorSesion; });
+    return combinarAdherenciaYRendimiento(serieBase, function (d) { return d.volumenPromedioPorSesion; });
   }
 
   /* --- Opciones de bloque/ejercicio para el análisis (incluyen históricos,
@@ -618,28 +642,14 @@ GYMAPP.progreso = (function () {
     );
   }
 
+  /* Reutiliza el mismo helper que Evolución (renderSelectorBloqueEjercicio,
+     más arriba): misma jerarquía bloque -> ejercicio opcional, ids propios
+     ("select-analisis-*") porque ambas secciones conviven en la pantalla. */
   function renderSelectoresAnalisis(opcionesBloques, opcionesEjercicios) {
-    var selectBloque =
-      '<div class="campo"><label for="select-analisis-bloque">Bloque / día de rutina</label>' +
-      '<select id="select-analisis-bloque">' +
-      opcionesBloques.map(function (o) {
-        return '<option value="' + o.id + '"' + (o.id === estadoAnalisis.bloqueId ? " selected" : "") + ">" +
-          GYMAPP.util.escapeHtml(o.nombre) + "</option>";
-      }).join("") +
-      "</select></div>";
-
-    var selectEjercicio = opcionesEjercicios.length
-      ? '<div class="campo"><label for="select-analisis-ejercicio">Ejercicio (opcional)</label>' +
-        '<select id="select-analisis-ejercicio">' +
-        '<option value=""' + (!estadoAnalisis.ejercicioId ? " selected" : "") + ">Todo el bloque</option>" +
-        opcionesEjercicios.map(function (o) {
-          return '<option value="' + o.id + '"' + (o.id === estadoAnalisis.ejercicioId ? " selected" : "") + ">" +
-            GYMAPP.util.escapeHtml(o.nombre) + "</option>";
-        }).join("") +
-        "</select></div>"
-      : "";
-
-    return selectBloque + selectEjercicio;
+    return renderSelectorBloqueEjercicio(
+      "select-analisis-bloque", "select-analisis-ejercicio",
+      opcionesBloques, opcionesEjercicios, estadoAnalisis.bloqueId, estadoAnalisis.ejercicioId
+    );
   }
 
   /* Filas de volumen para la vista por BLOQUE (secciones 4 y 5). Con
@@ -669,6 +679,36 @@ GYMAPP.progreso = (function () {
       filas.push(["Volumen de la sesión", formatearKg(datosSemana.volumenTotal)]);
     } else {
       filas.unshift(["Sesiones", String(datosSemana.cantidadSesiones)]);
+      filas.push(["Volumen total", formatearKg(datosSemana.volumenTotal)]);
+      filas.push(["Promedio/sesión", formatearKg(datosSemana.volumenPromedioPorSesion)]);
+    }
+    return filas;
+  }
+
+  /* PROG-01.2, sección 5: filas para la tarjeta cuando la semana ACTUAL
+     está pendiente (0 sesiones) y se muestra en su lugar la última
+     semana con sesiones reales. Reetiqueta "Volumen de la sesión" como
+     "Última sesión" para que quede claro que no es la semana en curso. */
+  function filasUltimaSemanaRealizadaBloque(datosSemana) {
+    if (datosSemana.cantidadSesiones === 1) {
+      return [["Última sesión", formatearKg(datosSemana.volumenTotal)]];
+    }
+    return [
+      ["Última semana entrenada", datosSemana.cantidadSesiones + " sesiones"],
+      ["Volumen total", formatearKg(datosSemana.volumenTotal)],
+      ["Promedio/sesión", formatearKg(datosSemana.volumenPromedioPorSesion)]
+    ];
+  }
+
+  function filasUltimaSemanaRealizadaEjercicio(datosSemana) {
+    var filas = [
+      ["Peso máximo", formatearKg(datosSemana.pesoMaximo)],
+      ["Reps totales", String(datosSemana.repsTotales)]
+    ];
+    if (datosSemana.cantidadSesiones === 1) {
+      filas.push(["Última sesión", formatearKg(datosSemana.volumenTotal)]);
+    } else {
+      filas.unshift(["Última semana entrenada", datosSemana.cantidadSesiones + " sesiones"]);
       filas.push(["Volumen total", formatearKg(datosSemana.volumenTotal)]);
       filas.push(["Promedio/sesión", formatearKg(datosSemana.volumenPromedioPorSesion)]);
     }
@@ -711,14 +751,18 @@ GYMAPP.progreso = (function () {
     }
 
     var actual = serie[serie.length - 1];
-    var clasificacion = clasificarProgreso(actual.cambioPct);
     var estadoFrecuencia = obtenerEstadoFrecuenciaSemanal(actual.datos.cantidadSesiones, esActivo);
-    var filas = filasVolumenBloque(actual.datos).concat([filaRpe(actual.datos)]);
+    var cuerpo;
 
-    return (
-      renderResumenSemanaActual(nombreBloque, actual, clasificacion, filas, estadoFrecuencia) +
-      renderHistorialSemanal(serie, esActivo ? extractorHistorialActivo : extractorHistorialGenerico)
-    );
+    if (actual.datos.cantidadSesiones > 0) {
+      var clasificacion = clasificarProgreso(actual.cambioPct);
+      var filas = filasVolumenBloque(actual.datos).concat([filaRpe(actual.datos)]);
+      cuerpo = renderResumenSemanaActual(nombreBloque, actual, clasificacion, filas, estadoFrecuencia);
+    } else {
+      cuerpo = renderResumenUltimaRealizada(nombreBloque, actual, obtenerUltimaSemanaRealizada(serie), estadoFrecuencia, filasUltimaSemanaRealizadaBloque, filaRpe);
+    }
+
+    return cuerpo + renderHistorialSemanal(serie, esActivo ? extractorHistorialActivo : extractorHistorialGenerico);
   }
 
   function renderAnalisisEjercicio(nombreEjercicio, serie, esActivo) {
@@ -727,11 +771,18 @@ GYMAPP.progreso = (function () {
     }
 
     var actual = serie[serie.length - 1];
-    var clasificacion = clasificarProgreso(actual.cambioPct);
     var estadoFrecuencia = obtenerEstadoFrecuenciaSemanal(actual.datos.cantidadSesiones, esActivo);
+    var cuerpo;
+
+    if (actual.datos.cantidadSesiones > 0) {
+      var clasificacion = clasificarProgreso(actual.cambioPct);
+      cuerpo = renderResumenSemanaActual(nombreEjercicio, actual, clasificacion, filasVolumenEjercicio(actual.datos), estadoFrecuencia);
+    } else {
+      cuerpo = renderResumenUltimaRealizada(nombreEjercicio, actual, obtenerUltimaSemanaRealizada(serie), estadoFrecuencia, filasUltimaSemanaRealizadaEjercicio, null);
+    }
 
     return (
-      renderResumenSemanaActual(nombreEjercicio, actual, clasificacion, filasVolumenEjercicio(actual.datos), estadoFrecuencia) +
+      cuerpo +
       '<p class="nota analisis-nota-rpe">El RPE se registra por sesión completa, no por ejercicio: por eso no se muestra acá.</p>' +
       renderHistorialSemanal(serie, esActivo ? extractorHistorialActivo : extractorHistorialGenerico)
     );
@@ -783,6 +834,54 @@ GYMAPP.progreso = (function () {
     );
   }
 
+  /* PROG-01.2, sección 5: cuando la semana actual está pendiente (0
+     sesiones), no se "resetea" el rendimiento a 0/-100%: se muestra la
+     última semana con sesiones reales (adherencia y rendimiento quedan
+     así separados, sección 1-2 del pedido). `construirFilas` es
+     filasUltimaSemanaRealizadaBloque/Ejercicio; `construirFilaRpe` es
+     filaRpe para bloque, o null para ejercicio (nunca se inventa un RPE
+     por ejercicio, ver nota al principio de este bloque de código). */
+  function renderResumenUltimaRealizada(titulo, entradaActual, ultimaRealizada, estadoFrecuencia, construirFilas, construirFilaRpe) {
+    var etiquetaSemanaActual = esSemanaEnCurso(entradaActual.semana) ? "Semana en curso" : formatearRangoSemana(entradaActual.semana);
+    var encabezado =
+      '<h4 class="analisis-semana-actual-titulo">' + GYMAPP.util.escapeHtml(titulo) + " · " + etiquetaSemanaActual + "</h4>" +
+      (estadoFrecuencia
+        ? '<p class="nota analisis-estado-frecuencia analisis-estado-frecuencia-' + estadoFrecuencia.tipo + '">' + estadoFrecuencia.texto + "</p>"
+        : "");
+
+    /* No debería ocurrir si serie.length > 0 (construirSerieSemanalBloque/
+       Ejercicio ya garantizan al menos una sesión real para llegar hasta
+       acá), pero se cubre por seguridad en vez de asumirlo. */
+    if (!ultimaRealizada) {
+      return '<div class="analisis-semana-actual">' + encabezado + '<p class="nota">Sin comparación</p></div>';
+    }
+
+    var clasificacion = clasificarProgreso(ultimaRealizada.cambioPct);
+    var filas = construirFilas(ultimaRealizada.datos);
+    if (construirFilaRpe) filas = filas.concat([construirFilaRpe(ultimaRealizada.datos)]);
+
+    return (
+      '<div class="analisis-semana-actual">' +
+      encabezado +
+      '<p class="nota analisis-ultima-realizada">Último rendimiento real: ' + formatearRangoSemana(ultimaRealizada.semana) + ".</p>" +
+      '<div class="analisis-stats">' +
+      filas.map(function (f) {
+        return '<div class="analisis-stat"><span class="analisis-stat-label">' + f[0] + '</span><span class="analisis-stat-valor">' + f[1] + "</span></div>";
+      }).join("") +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Último cambio</span><span class="analisis-stat-valor">' +
+      (ultimaRealizada.cambioPct === null ? "Sin comparación" : formatearPct(ultimaRealizada.cambioPct)) +
+      "</span></div>" +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Tendencia 3 sesiones</span><span class="analisis-stat-valor">' +
+      (ultimaRealizada.tendencia3 === null ? "Datos insuficientes" : formatearPct(ultimaRealizada.tendencia3) + "/sem") +
+      "</span></div>" +
+      "</div>" +
+      (clasificacion
+        ? '<div class="analisis-badge analisis-badge-' + clasificacion.nivel + '">' + clasificacion.emoji + " " + clasificacion.etiqueta + "</div>"
+        : "") +
+      "</div>"
+    );
+  }
+
   /* Historial semanal (sección 8): lista vertical mobile-first, más
      reciente primero. Se limita a las últimas 8 semanas para no volverse
      una lista interminable de semanas en 0 en rutinas muy viejas; el
@@ -799,14 +898,24 @@ GYMAPP.progreso = (function () {
           '<div class="analisis-historial-item">' +
           '<span class="analisis-historial-semana">' + formatearRangoSemana(entrada.semana) + "</span>" +
           '<span class="analisis-historial-detalle">' + filas.join(" · ") + "</span>" +
-          '<span class="analisis-historial-cambio">' +
-          (entrada.cambioPct === null ? "Sin comparación" : formatearPct(entrada.cambioPct)) +
-          "</span>" +
+          '<span class="analisis-historial-cambio">' + formatearCambioHistorial(entrada) + "</span>" +
           "</div>"
         );
       }).join("") +
       "</div>"
     );
+  }
+
+  /* PROG-01.2, sección 6: una semana con 0 sesiones nunca muestra un
+     cambio de rendimiento (nunca -100%, nunca "Caída"): no hay ninguna
+     sesión real contra la cual medir nada. Se distingue a propósito de
+     "Sin comparación" (que es un cambioPct real = null porque todavía no
+     hay semana anterior realizada, por ejemplo la primera sesión de la
+     historia) usando un guión en vez de esa frase, para no mezclar "no
+     hay dato" con "no se entrenó esta semana". */
+  function formatearCambioHistorial(entrada) {
+    if (entrada.datos.cantidadSesiones === 0) return "—";
+    return entrada.cambioPct === null ? "Sin comparación" : formatearPct(entrada.cambioPct);
   }
 
   /* --- Calendario (sección) --- */
@@ -1094,9 +1203,9 @@ GYMAPP.progreso = (function () {
     var vacioEl = container.querySelector("#progreso-grafico-vacio");
     var infoEl = container.querySelector("#progreso-dia-info");
 
-    var puntos = estado.seleccionTipo === "dia"
-      ? obtenerSerieDia(data.sesiones_entrenamiento, estado.seleccionId, estado.metrica)
-      : obtenerSerieEjercicio(data.sesiones_entrenamiento, estado.seleccionId, estado.metrica);
+    var puntos = estado.ejercicioId
+      ? obtenerSerieEjercicio(data.sesiones_entrenamiento, estado.ejercicioId, estado.metrica)
+      : obtenerSerieDia(data.sesiones_entrenamiento, estado.bloqueId, estado.metrica);
 
     if (!puntos.length) {
       canvas.style.display = "none";
@@ -1125,15 +1234,14 @@ GYMAPP.progreso = (function () {
 
   function bindEventos(container) {
     container.addEventListener("change", function (ev) {
-      if (ev.target.id === "select-progreso-ejercicio") {
-        var valor = ev.target.value;
-        if (valor.indexOf("dia:") === 0) {
-          estado.seleccionTipo = "dia";
-          estado.seleccionId = valor.slice(4);
-        } else {
-          estado.seleccionTipo = "ejercicio";
-          estado.seleccionId = valor;
-        }
+      if (ev.target.id === "select-evolucion-bloque") {
+        estado.bloqueId = ev.target.value;
+        estado.ejercicioId = "";
+        estado.metrica = "volumen_total";
+        render(container);
+      } else if (ev.target.id === "select-evolucion-ejercicio") {
+        estado.ejercicioId = ev.target.value;
+        if (!estado.ejercicioId) estado.metrica = "volumen_total";
         render(container);
       } else if (ev.target.id === "select-analisis-bloque") {
         estadoAnalisis.bloqueId = ev.target.value;
@@ -1193,6 +1301,12 @@ GYMAPP.progreso = (function () {
     bloqueEsActivo: bloqueEsActivo,
     obtenerEstadoFrecuenciaSemanal: obtenerEstadoFrecuenciaSemanal,
     filasVolumenBloque: filasVolumenBloque,
-    filasVolumenEjercicio: filasVolumenEjercicio
+    filasVolumenEjercicio: filasVolumenEjercicio,
+    /* PROG-01.2: expuestas para pruebas unitarias de cálculo puro. */
+    combinarAdherenciaYRendimiento: combinarAdherenciaYRendimiento,
+    obtenerUltimaSemanaRealizada: obtenerUltimaSemanaRealizada,
+    filasUltimaSemanaRealizadaBloque: filasUltimaSemanaRealizadaBloque,
+    filasUltimaSemanaRealizadaEjercicio: filasUltimaSemanaRealizadaEjercicio,
+    formatearCambioHistorial: formatearCambioHistorial
   };
 })();
