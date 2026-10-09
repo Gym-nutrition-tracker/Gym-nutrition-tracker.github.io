@@ -867,6 +867,126 @@ body {
   height: 240px;
 }
 
+/* PROG-01: Análisis semanal */
+.progreso-analisis-semanal .campo {
+  margin-bottom: 10px;
+}
+
+.analisis-semana-actual {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-borde);
+}
+
+.analisis-semana-actual-titulo {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.analisis-muestra-chica {
+  margin: 0 0 8px;
+}
+
+.analisis-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analisis-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.analisis-stat-label {
+  color: var(--color-texto-secundario);
+}
+
+.analisis-stat-valor {
+  font-weight: 600;
+  text-align: right;
+}
+
+.analisis-badge {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.analisis-badge-caida {
+  background: rgba(227, 27, 35, 0.14);
+  color: var(--color-error);
+}
+
+.analisis-badge-mantenimiento {
+  background: rgba(234, 179, 8, 0.16);
+  color: #EAB308;
+}
+
+.analisis-badge-optimo {
+  background: rgba(34, 197, 94, 0.16);
+  color: #22C55E;
+}
+
+.analisis-badge-alto {
+  background: rgba(47, 111, 237, 0.16);
+  color: var(--color-celeste);
+}
+
+.analisis-badge-agresivo {
+  background: rgba(249, 115, 22, 0.16);
+  color: #F97316;
+}
+
+.analisis-nota-rpe {
+  margin-top: 10px;
+}
+
+.analisis-historial-titulo {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-borde);
+  font-size: 0.85rem;
+  color: var(--color-texto-secundario);
+}
+
+.analisis-historial-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.analisis-historial-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--color-fondo);
+  border: 1px solid var(--color-borde);
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.analisis-historial-semana {
+  font-weight: 600;
+}
+
+.analisis-historial-detalle {
+  color: var(--color-texto-secundario);
+  font-size: 0.85rem;
+}
+
+.analisis-historial-cambio {
+  font-weight: 600;
+}
+
 @media (min-width: 720px) {
   .progreso-resumen {
     grid-template-columns: repeat(4, 1fr);

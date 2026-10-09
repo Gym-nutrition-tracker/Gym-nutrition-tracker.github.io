@@ -86,6 +86,7 @@ GYMAPP.progreso = (function () {
       '<div class="progreso-layout">' +
       '<div class="progreso-columna-principal">' +
       renderSeccionEvolucion(opcionesDias, opcionesEjercicio) +
+      renderSeccionAnalisisSemanal(data) +
       "</div>" +
       '<div class="progreso-columna-lateral">' +
       renderSeccionCalendario(data) +
@@ -234,6 +235,484 @@ GYMAPP.progreso = (function () {
     return (
       '<button type="button" data-accion="set-metrica" data-metrica="' + valor + '" class="btn-tipo' +
       (estado.metrica === valor ? " activo" : "") + '">' + etiqueta + "</button>"
+    );
+  }
+
+  /* --- PROG-01: análisis de progresión semanal ---
+
+     Alcance: solo lectura de datos. Todo se deriva en runtime a partir de
+     sesiones_entrenamiento en cada render; no se persiste nada nuevo ni se
+     toca schema_version, localStorage, rutina histórica ni sesiones.
+
+     Semana: lunes a domingo, siempre en fecha LOCAL (se parte de
+     GYMAPP.util.fechaLocalISO(sesion.fecha), nunca de la hora UTC cruda, y
+     toda la aritmética de fechas usa el constructor local new Date(y,m,d),
+     nunca new Date(isoString) ni slice sobre un timestamp).
+
+     Bloque = día de rutina (dia_rutina_id). Un bloque o ejercicio histórico
+     (ya editado/eliminado de la rutina actual) sigue analizándose igual:
+     las opciones de bloque/ejercicio para este análisis se reconstruyen
+     también desde el historial, no solo desde la rutina vigente (mismo
+     criterio que ya usa construirOpcionesEjercicio más arriba).
+
+     RPE: el modelo de datos solo lo guarda a nivel SESIÓN COMPLETA, nunca
+     por ejercicio individual. Por eso "RPE promedio" se calcula y se
+     muestra únicamente en la vista por BLOQUE (promedio del RPE de las
+     sesiones de ese bloque en la semana); la vista por EJERCICIO nunca
+     muestra un RPE propio, a propósito, para no inventar un dato que el
+     modelo no tiene. */
+
+  var estadoAnalisis = { bloqueId: "", ejercicioId: "" };
+
+  /* Lunes=0 ya existe como diaDeSemanaLunesPrimero(date) más abajo en el
+     archivo (declarado con function, por lo que el hoisting lo deja
+     disponible acá arriba sin problema). */
+  function inicioDeSemanaISO(fechaLocalISOStr) {
+    var partes = fechaLocalISOStr.split("-");
+    var d = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+    d.setDate(d.getDate() - diaDeSemanaLunesPrimero(d));
+    return formatearFechaISO(d);
+  }
+
+  function finDeSemanaISO(inicioSemanaISO) {
+    var partes = inicioSemanaISO.split("-");
+    var d = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+    d.setDate(d.getDate() + 6);
+    return formatearFechaISO(d);
+  }
+
+  /* Rango continuo de semanas (lunes a lunes, de 7 en 7) entre dos inicios
+     de semana ISO, ambos incluidos. Así las semanas sin ninguna sesión
+     quedan representadas con 0 en vez de simplemente no existir. */
+  function generarRangoSemanas(inicioISO, finISO) {
+    var resultado = [];
+    var partesInicio = inicioISO.split("-");
+    var cursor = new Date(parseInt(partesInicio[0], 10), parseInt(partesInicio[1], 10) - 1, parseInt(partesInicio[2], 10));
+    var partesFin = finISO.split("-");
+    var fin = new Date(parseInt(partesFin[0], 10), parseInt(partesFin[1], 10) - 1, parseInt(partesFin[2], 10));
+    while (cursor <= fin) {
+      resultado.push(formatearFechaISO(cursor));
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    return resultado;
+  }
+
+  /* Series de TODOS los ejercicios realizados en una sesión, aplanadas.
+     Mismo criterio que obtenerSerieDia: peso/reps faltantes o en 0 nunca
+     rompen el cálculo, simplemente no aportan volumen. */
+  function obtenerSeriesDeSesion(sesion) {
+    return (sesion.ejercicios_realizados || []).reduce(function (acc, er) {
+      return acc.concat(er.series || []);
+    }, []);
+  }
+
+  function volumenDeSeries(series) {
+    return series.reduce(function (acc, serie) {
+      var peso = Number(serie.peso_kg) || 0;
+      var reps = Number(serie.reps) || 0;
+      return acc + peso * reps;
+    }, 0);
+  }
+
+  /* volumen = SUMA(peso * repeticiones) sobre todas las series de la
+     sesión, sumando los ejercicios del bloque (todos los ejercicios
+     realizados en esa sesión, ya que una sesión de gimnasio corresponde a
+     un solo bloque/día de rutina). */
+  function volumenSesionCompleta(sesion) {
+    return volumenDeSeries(obtenerSeriesDeSesion(sesion));
+  }
+
+  function promedioONull(valores) {
+    var limpios = valores.filter(function (v) { return v !== null && v !== undefined && !isNaN(v); });
+    if (!limpios.length) return null;
+    return limpios.reduce(function (a, b) { return a + b; }, 0) / limpios.length;
+  }
+
+  /* cambio_pct = ((actual - anterior) / anterior) * 100.
+     - Sin semana anterior comparable (no se pasa `anterior`): null -> "Sin
+       comparación".
+     - anterior = 0: nunca se divide por cero. Si actual también es 0, el
+       cambio es 0% (no hay base matemática distinta); si actual > 0, no
+       hay una base real desde la que calcular un porcentaje (sería
+       "infinito"), así que se trata también como "Sin comparación" en vez
+       de inventar un número. */
+  function calcularCambioPorcentual(valorActual, valorAnterior) {
+    if (valorAnterior === null || valorAnterior === undefined) return null;
+    if (valorAnterior === 0) return valorActual === 0 ? 0 : null;
+    return ((valorActual - valorAnterior) / valorAnterior) * 100;
+  }
+
+  /* Clasificación de progreso (SOLO lectura del rendimiento actual, nunca
+     una recomendación: eso es PROG-02) según el cambio semanal del volumen
+     promedio por sesión. Límites tal como los pidió el usuario:
+       <0%            -> Caída
+       0% a <2%       -> Mantenimiento
+       2% a 5%        -> Progreso óptimo
+       >5% a 8%       -> Progreso alto
+       >8%            -> Salto agresivo */
+  function clasificarProgreso(cambioPct) {
+    if (cambioPct === null || cambioPct === undefined) return null;
+    if (cambioPct < 0) return { nivel: "caida", emoji: "🔴", etiqueta: "Caída" };
+    if (cambioPct < 2) return { nivel: "mantenimiento", emoji: "🟡", etiqueta: "Mantenimiento" };
+    if (cambioPct <= 5) return { nivel: "optimo", emoji: "🟢", etiqueta: "Progreso óptimo" };
+    if (cambioPct <= 8) return { nivel: "alto", emoji: "🔵", etiqueta: "Progreso alto" };
+    return { nivel: "agresivo", emoji: "🟠", etiqueta: "Salto agresivo" };
+  }
+
+  /* Métricas de UNA semana para un BLOQUE (sección 2 del pedido). */
+  function calcularMetricasSemanaBloque(sesionesSemana) {
+    var cantidadSesiones = sesionesSemana.length;
+    var volumenTotal = sesionesSemana.reduce(function (acc, s) { return acc + volumenSesionCompleta(s); }, 0);
+    var volumenPromedioPorSesion = cantidadSesiones > 0 ? volumenTotal / cantidadSesiones : 0;
+    var rpePromedio = promedioONull(sesionesSemana.map(function (s) { return typeof s.rpe === "number" ? s.rpe : null; }));
+    return {
+      cantidadSesiones: cantidadSesiones,
+      volumenTotal: volumenTotal,
+      volumenPromedioPorSesion: volumenPromedioPorSesion,
+      rpePromedio: rpePromedio
+    };
+  }
+
+  /* Métricas de UNA semana para un EJERCICIO (sección 3). A propósito sin
+     rpePromedio: ver nota de RPE al principio de este bloque. */
+  function calcularMetricasSemanaEjercicio(registrosSemana) {
+    var cantidadSesiones = registrosSemana.length;
+    var seriesTotales = 0;
+    var repsTotales = 0;
+    var pesoMaximo = 0;
+    var volumenTotal = 0;
+
+    registrosSemana.forEach(function (r) {
+      (r.registro.series || []).forEach(function (serie) {
+        var peso = Number(serie.peso_kg) || 0;
+        var reps = Number(serie.reps) || 0;
+        seriesTotales += 1;
+        repsTotales += reps;
+        volumenTotal += peso * reps;
+        if (peso > pesoMaximo) pesoMaximo = peso;
+      });
+    });
+
+    var volumenPromedioPorSesion = cantidadSesiones > 0 ? volumenTotal / cantidadSesiones : 0;
+
+    return {
+      cantidadSesiones: cantidadSesiones,
+      seriesTotales: seriesTotales,
+      repsTotales: repsTotales,
+      pesoMaximo: pesoMaximo,
+      volumenTotal: volumenTotal,
+      volumenPromedioPorSesion: volumenPromedioPorSesion
+    };
+  }
+
+  /* Agrega, a una serie semanal ASCENDENTE (ya con huecos rellenados por
+     generarRangoSemanas), el cambio % vs la semana inmediatamente anterior
+     y la tendencia de 3 semanas (promedio de los últimos 3 cambios, sección
+     5). Si cualquiera de esas 3 últimas variaciones no existe todavía
+     (menos de 3 semanas de historia comparable), la tendencia queda en
+     null -> "Datos insuficientes". */
+  function agregarCambiosYTendencia(serieAscendente, extractorValor) {
+    var conCambios = serieAscendente.map(function (entrada, i) {
+      var valorActual = extractorValor(entrada.datos);
+      var valorAnterior = i > 0 ? extractorValor(serieAscendente[i - 1].datos) : null;
+      var cambioPct = i > 0 ? calcularCambioPorcentual(valorActual, valorAnterior) : null;
+      return {
+        semana: entrada.semana,
+        datos: entrada.datos,
+        cambioPct: cambioPct
+      };
+    });
+
+    conCambios.forEach(function (entrada, i) {
+      var ultimasTres = conCambios.slice(Math.max(0, i - 2), i + 1);
+      var tendencia = null;
+      if (ultimasTres.length === 3 && ultimasTres.every(function (e) { return e.cambioPct !== null; })) {
+        tendencia = ultimasTres.reduce(function (acc, e) { return acc + e.cambioPct; }, 0) / 3;
+      }
+      entrada.tendencia3 = tendencia;
+    });
+
+    return conCambios;
+  }
+
+  /* --- Series semanales completas por bloque / por ejercicio --- */
+
+  function construirSerieSemanalBloque(sesiones, bloqueId) {
+    var sesionesBloque = sesiones.filter(function (s) { return s.tipo === "gimnasio" && s.dia_rutina_id === bloqueId; });
+    if (!sesionesBloque.length) return [];
+
+    var porSemana = {};
+    sesionesBloque.forEach(function (s) {
+      var semana = inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(s.fecha));
+      if (!porSemana[semana]) porSemana[semana] = [];
+      porSemana[semana].push(s);
+    });
+
+    var semanasConDatos = Object.keys(porSemana).sort();
+    var semanaActual = inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(new Date()));
+    var semanaFin = semanasConDatos[semanasConDatos.length - 1] > semanaActual
+      ? semanasConDatos[semanasConDatos.length - 1]
+      : semanaActual;
+
+    var serieBase = generarRangoSemanas(semanasConDatos[0], semanaFin).map(function (semana) {
+      return { semana: semana, datos: calcularMetricasSemanaBloque(porSemana[semana] || []) };
+    });
+
+    return agregarCambiosYTendencia(serieBase, function (d) { return d.volumenPromedioPorSesion; });
+  }
+
+  function construirSerieSemanalEjercicio(sesiones, ejercicioId) {
+    var porSemana = {};
+    sesiones.forEach(function (s) {
+      if (s.tipo !== "gimnasio") return;
+      var registro = (s.ejercicios_realizados || []).filter(function (er) { return er.ejercicio_id === ejercicioId; })[0];
+      if (!registro) return;
+      var semana = inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(s.fecha));
+      if (!porSemana[semana]) porSemana[semana] = [];
+      porSemana[semana].push({ sesion: s, registro: registro });
+    });
+
+    var semanasConDatos = Object.keys(porSemana).sort();
+    if (!semanasConDatos.length) return [];
+
+    var semanaActual = inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(new Date()));
+    var semanaFin = semanasConDatos[semanasConDatos.length - 1] > semanaActual
+      ? semanasConDatos[semanasConDatos.length - 1]
+      : semanaActual;
+
+    var serieBase = generarRangoSemanas(semanasConDatos[0], semanaFin).map(function (semana) {
+      return { semana: semana, datos: calcularMetricasSemanaEjercicio(porSemana[semana] || []) };
+    });
+
+    return agregarCambiosYTendencia(serieBase, function (d) { return d.volumenPromedioPorSesion; });
+  }
+
+  /* --- Opciones de bloque/ejercicio para el análisis (incluyen históricos,
+     sección 11: "un ejercicio o bloque histórico debe seguir analizándose
+     aunque ya no esté activo en la rutina actual"). --- */
+
+  function construirOpcionesBloquesAnalisis(data) {
+    var mapa = {};
+    data.rutina.dias.forEach(function (dia) { mapa[dia.id] = dia.nombre || "(sin nombre)"; });
+    data.sesiones_entrenamiento.forEach(function (s) {
+      if (s.tipo === "gimnasio" && s.dia_rutina_id && !mapa[s.dia_rutina_id]) {
+        mapa[s.dia_rutina_id] = "Bloque eliminado de la rutina";
+      }
+    });
+    return Object.keys(mapa).map(function (id) { return { id: id, nombre: mapa[id] }; });
+  }
+
+  function construirOpcionesEjerciciosDeBloque(data, bloqueId) {
+    var mapa = {};
+    var diaActual = data.rutina.dias.filter(function (d) { return d.id === bloqueId; })[0];
+    if (diaActual) {
+      diaActual.ejercicios.forEach(function (ej) { mapa[ej.id] = ej.nombre || "(sin nombre)"; });
+    }
+    data.sesiones_entrenamiento.forEach(function (s) {
+      if (s.tipo !== "gimnasio" || s.dia_rutina_id !== bloqueId) return;
+      (s.ejercicios_realizados || []).forEach(function (er) {
+        if (!mapa[er.ejercicio_id]) mapa[er.ejercicio_id] = "Ejercicio eliminado de la rutina";
+      });
+    });
+    return Object.keys(mapa).map(function (id) { return { id: id, nombre: mapa[id] }; });
+  }
+
+  /* --- Formateo (es-AR: punto de miles, coma decimal) --- */
+
+  function formatearKg(n) {
+    return Math.round(n).toLocaleString("es-AR") + " kg";
+  }
+
+  function formatearPct(n) {
+    var signo = n > 0 ? "+" : "";
+    return signo + n.toFixed(1).replace(".", ",") + "%";
+  }
+
+  function formatearRangoSemana(inicioISO) {
+    var fin = finDeSemanaISO(inicioISO);
+    var i = new Date(inicioISO + "T00:00:00");
+    var f = new Date(fin + "T00:00:00");
+    var formatoCorto = function (d) { return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0"); };
+    return "Semana " + formatoCorto(i) + "–" + formatoCorto(f);
+  }
+
+  /* --- UI: sección "Análisis semanal" --- */
+
+  function renderSeccionAnalisisSemanal(data) {
+    var opcionesBloques = construirOpcionesBloquesAnalisis(data);
+
+    if (!opcionesBloques.length) {
+      return (
+        '<div class="progreso-panel progreso-analisis-semanal">' +
+        "<h3>Análisis semanal</h3>" +
+        '<p class="nota">Todavía no hay sesiones de gimnasio para analizar por bloque.</p>' +
+        "</div>"
+      );
+    }
+
+    if (!estadoAnalisis.bloqueId || !opcionesBloques.some(function (o) { return o.id === estadoAnalisis.bloqueId; })) {
+      estadoAnalisis.bloqueId = opcionesBloques[0].id;
+      estadoAnalisis.ejercicioId = "";
+    }
+
+    var opcionesEjercicios = construirOpcionesEjerciciosDeBloque(data, estadoAnalisis.bloqueId);
+    if (estadoAnalisis.ejercicioId && !opcionesEjercicios.some(function (o) { return o.id === estadoAnalisis.ejercicioId; })) {
+      estadoAnalisis.ejercicioId = "";
+    }
+
+    var nombreBloque = opcionesBloques.filter(function (o) { return o.id === estadoAnalisis.bloqueId; })[0].nombre;
+    var cuerpo;
+
+    if (estadoAnalisis.ejercicioId) {
+      var nombreEjercicio = opcionesEjercicios.filter(function (o) { return o.id === estadoAnalisis.ejercicioId; })[0].nombre;
+      var serieEjercicio = construirSerieSemanalEjercicio(data.sesiones_entrenamiento, estadoAnalisis.ejercicioId);
+      cuerpo = renderAnalisisEjercicio(nombreEjercicio, serieEjercicio);
+    } else {
+      var serieBloque = construirSerieSemanalBloque(data.sesiones_entrenamiento, estadoAnalisis.bloqueId);
+      cuerpo = renderAnalisisBloque(nombreBloque, serieBloque);
+    }
+
+    return (
+      '<div class="progreso-panel progreso-analisis-semanal">' +
+      "<h3>Análisis semanal</h3>" +
+      renderSelectoresAnalisis(opcionesBloques, opcionesEjercicios) +
+      cuerpo +
+      "</div>"
+    );
+  }
+
+  function renderSelectoresAnalisis(opcionesBloques, opcionesEjercicios) {
+    var selectBloque =
+      '<div class="campo"><label for="select-analisis-bloque">Bloque / día de rutina</label>' +
+      '<select id="select-analisis-bloque">' +
+      opcionesBloques.map(function (o) {
+        return '<option value="' + o.id + '"' + (o.id === estadoAnalisis.bloqueId ? " selected" : "") + ">" +
+          GYMAPP.util.escapeHtml(o.nombre) + "</option>";
+      }).join("") +
+      "</select></div>";
+
+    var selectEjercicio = opcionesEjercicios.length
+      ? '<div class="campo"><label for="select-analisis-ejercicio">Ejercicio (opcional)</label>' +
+        '<select id="select-analisis-ejercicio">' +
+        '<option value=""' + (!estadoAnalisis.ejercicioId ? " selected" : "") + ">Todo el bloque</option>" +
+        opcionesEjercicios.map(function (o) {
+          return '<option value="' + o.id + '"' + (o.id === estadoAnalisis.ejercicioId ? " selected" : "") + ">" +
+            GYMAPP.util.escapeHtml(o.nombre) + "</option>";
+        }).join("") +
+        "</select></div>"
+      : "";
+
+    return selectBloque + selectEjercicio;
+  }
+
+  function renderAnalisisBloque(nombreBloque, serie) {
+    if (!serie.length) {
+      return '<p class="nota">Todavía no hay sesiones registradas para este bloque.</p>';
+    }
+
+    var actual = serie[serie.length - 1];
+    var clasificacion = clasificarProgreso(actual.cambioPct);
+
+    return (
+      renderResumenSemanaActual(nombreBloque, actual, clasificacion, [
+        ["Sesiones", String(actual.datos.cantidadSesiones)],
+        ["Volumen total", formatearKg(actual.datos.volumenTotal)],
+        ["Promedio/sesión", formatearKg(actual.datos.volumenPromedioPorSesion)],
+        ["RPE promedio", actual.datos.rpePromedio !== null ? actual.datos.rpePromedio.toFixed(1).replace(".", ",") : "—"]
+      ]) +
+      renderHistorialSemanal(serie, function (entrada) {
+        return [
+          entrada.datos.cantidadSesiones === 1 ? "1 sesión" : entrada.datos.cantidadSesiones + " sesiones",
+          formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"
+        ];
+      })
+    );
+  }
+
+  function renderAnalisisEjercicio(nombreEjercicio, serie) {
+    if (!serie.length) {
+      return '<p class="nota">Todavía no hay registros de este ejercicio.</p>';
+    }
+
+    var actual = serie[serie.length - 1];
+    var clasificacion = clasificarProgreso(actual.cambioPct);
+
+    return (
+      renderResumenSemanaActual(nombreEjercicio, actual, clasificacion, [
+        ["Sesiones", String(actual.datos.cantidadSesiones)],
+        ["Peso máximo", formatearKg(actual.datos.pesoMaximo)],
+        ["Reps totales", String(actual.datos.repsTotales)],
+        ["Volumen total", formatearKg(actual.datos.volumenTotal)],
+        ["Promedio/sesión", formatearKg(actual.datos.volumenPromedioPorSesion)]
+      ]) +
+      '<p class="nota analisis-nota-rpe">El RPE se registra por sesión completa, no por ejercicio: por eso no se muestra acá.</p>' +
+      renderHistorialSemanal(serie, function (entrada) {
+        return [
+          entrada.datos.cantidadSesiones === 1 ? "1 sesión" : entrada.datos.cantidadSesiones + " sesiones",
+          formatearKg(entrada.datos.volumenPromedioPorSesion) + "/sesión"
+        ];
+      })
+    );
+  }
+
+  /* "Semana en curso" (sección 1 de los ajustes mínimos pedidos): aclaración
+     puramente de UX, no cambia ningún cálculo ni clasificación. `actual` es
+     casi siempre la semana que contiene hoy (así se construye la serie),
+     pero se verifica explícitamente por fecha en vez de asumir la posición
+     en el array, para que el rótulo sea siempre correcto. */
+  function esSemanaEnCurso(semanaISO) {
+    return semanaISO === inicioDeSemanaISO(GYMAPP.util.fechaLocalISO(new Date()));
+  }
+
+  function renderResumenSemanaActual(titulo, entradaActual, clasificacion, filas) {
+    var muestraChica = entradaActual.datos.cantidadSesiones === 1;
+    var etiquetaSemana = esSemanaEnCurso(entradaActual.semana) ? "Semana en curso" : formatearRangoSemana(entradaActual.semana);
+
+    return (
+      '<div class="analisis-semana-actual">' +
+      '<h4 class="analisis-semana-actual-titulo">' + GYMAPP.util.escapeHtml(titulo) + " · " + etiquetaSemana + "</h4>" +
+      (muestraChica ? '<p class="nota analisis-muestra-chica">Muestra chica: solo 1 sesión esta semana.</p>' : "") +
+      '<div class="analisis-stats">' +
+      filas.map(function (f) {
+        return '<div class="analisis-stat"><span class="analisis-stat-label">' + f[0] + '</span><span class="analisis-stat-valor">' + f[1] + "</span></div>";
+      }).join("") +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Cambio semanal</span><span class="analisis-stat-valor">' +
+      (entradaActual.cambioPct === null ? "Sin comparación" : formatearPct(entradaActual.cambioPct)) +
+      "</span></div>" +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Tendencia 3 semanas</span><span class="analisis-stat-valor">' +
+      (entradaActual.tendencia3 === null ? "Datos insuficientes" : formatearPct(entradaActual.tendencia3) + "/sem") +
+      "</span></div>" +
+      "</div>" +
+      (clasificacion
+        ? '<div class="analisis-badge analisis-badge-' + clasificacion.nivel + '">' + clasificacion.emoji + " " + clasificacion.etiqueta + "</div>"
+        : "") +
+      "</div>"
+    );
+  }
+
+  /* Historial semanal (sección 8): lista vertical mobile-first, más
+     reciente primero. Se limita a las últimas 8 semanas para no volverse
+     una lista interminable de semanas en 0 en rutinas muy viejas; el
+     cálculo de cambio/tendencia ya usa la serie completa de todas formas,
+     este límite es solo de visualización. */
+  function renderHistorialSemanal(serie, extractorFilas) {
+    var ultimasOcho = serie.slice(-8).reverse();
+    return (
+      '<div class="analisis-historial-titulo">Historial semanal</div>' +
+      '<div class="analisis-historial-lista">' +
+      ultimasOcho.map(function (entrada) {
+        var filas = extractorFilas(entrada);
+        return (
+          '<div class="analisis-historial-item">' +
+          '<span class="analisis-historial-semana">' + formatearRangoSemana(entrada.semana) + "</span>" +
+          '<span class="analisis-historial-detalle">' + filas.join(" · ") + "</span>" +
+          '<span class="analisis-historial-cambio">' +
+          (entrada.cambioPct === null ? "Sin comparación" : formatearPct(entrada.cambioPct)) +
+          "</span>" +
+          "</div>"
+        );
+      }).join("") +
+      "</div>"
     );
   }
 
@@ -563,6 +1042,13 @@ GYMAPP.progreso = (function () {
           estado.seleccionId = valor;
         }
         render(container);
+      } else if (ev.target.id === "select-analisis-bloque") {
+        estadoAnalisis.bloqueId = ev.target.value;
+        estadoAnalisis.ejercicioId = "";
+        render(container);
+      } else if (ev.target.id === "select-analisis-ejercicio") {
+        estadoAnalisis.ejercicioId = ev.target.value;
+        render(container);
       }
     });
 
@@ -594,6 +1080,21 @@ GYMAPP.progreso = (function () {
     render: render,
     /* Expuestas para pruebas unitarias de cálculo de días activos y racha. */
     obtenerDiasActivosOrdenados: obtenerDiasActivosOrdenados,
-    calcularRachas: calcularRachas
+    calcularRachas: calcularRachas,
+    /* PROG-01: expuestas para pruebas unitarias de cálculo puro, sin DOM. */
+    inicioDeSemanaISO: inicioDeSemanaISO,
+    finDeSemanaISO: finDeSemanaISO,
+    generarRangoSemanas: generarRangoSemanas,
+    volumenSesionCompleta: volumenSesionCompleta,
+    calcularCambioPorcentual: calcularCambioPorcentual,
+    clasificarProgreso: clasificarProgreso,
+    calcularMetricasSemanaBloque: calcularMetricasSemanaBloque,
+    calcularMetricasSemanaEjercicio: calcularMetricasSemanaEjercicio,
+    agregarCambiosYTendencia: agregarCambiosYTendencia,
+    construirSerieSemanalBloque: construirSerieSemanalBloque,
+    construirSerieSemanalEjercicio: construirSerieSemanalEjercicio,
+    construirOpcionesBloquesAnalisis: construirOpcionesBloquesAnalisis,
+    construirOpcionesEjerciciosDeBloque: construirOpcionesEjerciciosDeBloque,
+    esSemanaEnCurso: esSemanaEnCurso
   };
 })();
