@@ -734,6 +734,259 @@ GYMAPP.progreso = (function () {
     };
   }
 
+  /* --- PROG-03: recomendación específica por EJERCICIO ---
+
+     Baja un nivel respecto de PROG-02 (que recomienda para "todo el
+     bloque"): acá se analiza un ejercicio puntual, comparando sus
+     ÚLTIMAS EJECUCIONES REALES (nunca semanas con huecos en 0 — una
+     semana sin este ejercicio simplemente no genera una entrada, no se
+     rellena con 0, así que jamás se confunde con una caída de
+     rendimiento). Función pura, sin DOM, nada persistido, nunca edita
+     pesos/reps/rutina.
+
+     LÍMITE DOCUMENTADO (sección 3 del pedido): el modelo de datos no
+     distingue series de calentamiento/aproximación de series de trabajo
+     principal. Esta v1 NUNCA descarta ni reinterpreta series por su
+     cuenta: el volumen y las reps totales siempre suman TODAS las
+     series registradas. Para decidir si "se completó el rango objetivo"
+     se usan las series que quedaron AL PESO MÁXIMO de esa ejecución (la
+     única señal objetiva disponible de cuál fue la serie de trabajo
+     real, sin inventar cuál fue warm-up); con peso corporal (0 kg, sin
+     forma de distinguir por peso) se usan TODAS las series. */
+
+  /* Reconstruye, para un ejercicio, cada EJECUCIÓN real (una por sesión
+     donde se registró ese ejercicio), ordenadas por fecha ascendente.
+     Nunca incluye una entrada "vacía" para una sesión/semana donde no se
+     hizo el ejercicio: por construcción, no existe el concepto de "0"
+     acá (secciones 4/18/19 del pedido). */
+  function reconstruirEjecucionesEjercicio(sesiones, ejercicioId) {
+    var relevantes = sesiones
+      .filter(function (s) {
+        return s.tipo === "gimnasio" && (s.ejercicios_realizados || []).some(function (er) { return er.ejercicio_id === ejercicioId; });
+      })
+      .sort(function (a, b) { return new Date(a.fecha) - new Date(b.fecha); });
+
+    return relevantes.map(function (s) {
+      var registro = s.ejercicios_realizados.filter(function (er) { return er.ejercicio_id === ejercicioId; })[0];
+      var series = registro.series || [];
+      var pesoMaximo = series.reduce(function (max, serie) { return Math.max(max, Number(serie.peso_kg) || 0); }, 0);
+      var repsTotales = series.reduce(function (acc, serie) { return acc + (Number(serie.reps) || 0); }, 0);
+      var volumenTotal = series.reduce(function (acc, serie) { return acc + (Number(serie.peso_kg) || 0) * (Number(serie.reps) || 0); }, 0);
+
+      /* Series "principales": al peso máximo de la ejecución. Con peso
+         corporal (0 kg) no hay por peso con qué distinguir series: se
+         toman todas (nunca se excluye nada por cuenta propia). */
+      var seriesPrincipales = pesoMaximo > 0
+        ? series.filter(function (serie) { return (Number(serie.peso_kg) || 0) === pesoMaximo; })
+        : series;
+      var repsEnSeriesPrincipales = seriesPrincipales.map(function (serie) { return Number(serie.reps) || 0; });
+
+      return {
+        fecha: s.fecha,
+        rpeSesion: typeof s.rpe === "number" ? s.rpe : null,
+        series: series,
+        pesoMaximo: pesoMaximo,
+        repsTotales: repsTotales,
+        volumenTotal: volumenTotal,
+        repsEnSeriesPrincipales: repsEnSeriesPrincipales
+      };
+    });
+  }
+
+  /* Reutiliza agregarCambiosYTendencia (PROG-01, sin modificarla) sobre
+     la serie de EJECUCIONES reales: cada entrada se compara contra la
+     ejecución real inmediatamente anterior (nunca contra un hueco en
+     cero), y la tendencia usa los últimos 3 cambios de volumen entre
+     ejecuciones reales. */
+  function construirSerieEjecucionesConCambios(ejecuciones) {
+    var serieGenerica = ejecuciones.map(function (e) { return { semana: e.fecha, datos: e }; });
+    return agregarCambiosYTendencia(serieGenerica, function (d) { return d.volumenTotal; });
+  }
+
+  /* Rango de reps objetivo de la rutina (sección 5), SOLO en formatos
+     inequívocos: "10-12", "10–12", "10 a 12" (rango), o un único número
+     ("10" -> min=max=10). Nunca inventa un rango: si el texto no matchea
+     ninguno de esos patrones, devuelve null.
+
+     Ajuste explícito: cualquier formato con "/" (ej. "10/10", "12/12")
+     se rechaza A PROPÓSITO, ANTES de intentar ningún otro parseo. "/" es
+     una convención ambigua en esta rutina (puede significar "10 por
+     lado" en un ejercicio unilateral, o cualquier otra cosa) y nunca se
+     debe asumir que es un rango 10-10: tratarlo así generaba falsos
+     "Subir carga" solo porque las reps registradas superaban ese "rango"
+     mal interpretado. Sin rango (null), el motor usa el criterio
+     conservador existente (nunca "Subir carga" sin un rango inequívoco
+     contra el cual confirmar el tope). */
+  function parsearRangoReps(repsObjetivo) {
+    if (!repsObjetivo || typeof repsObjetivo !== "string") return null;
+    if (repsObjetivo.indexOf("/") !== -1) return null;
+    var rango = repsObjetivo.match(/(\d+)\s*(?:-|–|a)\s*(\d+)/i);
+    if (rango) {
+      var min = parseInt(rango[1], 10);
+      var max = parseInt(rango[2], 10);
+      return min <= max ? { min: min, max: max } : { min: max, max: min };
+    }
+    var unico = repsObjetivo.match(/(\d+)/);
+    if (unico) {
+      var n = parseInt(unico[1], 10);
+      return { min: n, max: n };
+    }
+    return null;
+  }
+
+  /* Ejercicio tal como está configurado HOY en la rutina (para leer
+     series_objetivo/reps_objetivo). null si el ejercicio ya no existe en
+     el bloque actual (histórico): en ese caso nunca se inventa un rango,
+     el motor cae directo al criterio conservador de la sección 5. */
+  function obtenerEjercicioDeRutina(data, bloqueId, ejercicioId) {
+    var dia = data.rutina.dias.filter(function (d) { return d.id === bloqueId; })[0];
+    if (!dia) return null;
+    return dia.ejercicios.filter(function (ej) { return ej.id === ejercicioId; })[0] || null;
+  }
+
+  /* Umbrales de caída (secciones 10/13/14): el pedido dice "cae de forma
+     clara" / "la caída es fuerte" sin dar un número exacto. -5% se eligió
+     como piso para no disparar "Recuperar rendimiento" por una variación
+     trivial (ej. una repetición de diferencia en un ejercicio de pocas
+     reps); -15% como "caída fuerte" que amerita un motivo más cauteloso
+     cuando además el RPE fue alto. Documentado para poder ajustarse. */
+  function cambioClaroNegativo(pct) { return pct !== null && pct !== undefined && pct <= -5; }
+  function cambioFuerteNegativo(pct) { return pct !== null && pct !== undefined && pct <= -15; }
+  function todasAlTopeOMas(reps, max) { return reps.length > 0 && reps.every(function (r) { return r >= max; }); }
+
+  /* Textos por estado (secciones 7-10, 13-14). Nunca definen kilos
+     concretos (sección 8: "no conocemos los incrementos disponibles de
+     la máquina/mancuernas") y nunca exigen +1 rep en TODAS las series. */
+  function textosRecomendacionEjercicio(estado, ctx) {
+    if (estado === "Sumar repeticiones") {
+      return ctx.esPesoCorporal
+        ? {
+            sugerencia: "Mantené la misma ejecución e intentá sumar 1–2 repeticiones totales o completar una repetición más en alguna serie.",
+            motivo: "Las repeticiones todavía pueden crecer sin necesidad de aumentar la dificultad."
+          }
+        : {
+            sugerencia: "Mantené " + formatearKg(ctx.pesoMaximo) + " e intentá sumar 1–2 repeticiones totales o completar una repetición más en alguna serie.",
+            motivo: "El rendimiento es estable o creciente y todavía hay margen antes de exigir más en el rango objetivo."
+          };
+    }
+    if (estado === "Subir carga") {
+      return {
+        sugerencia: "Probá subir la carga mínima disponible en la próxima sesión.",
+        motivo: "Completaste el extremo superior del rango de forma sólida y el esfuerzo no fue muy alto."
+      };
+    }
+    if (estado === "Mantener y consolidar") {
+      return ctx.esPesoCorporal
+        ? {
+            sugerencia: "Consolidá la ejecución actual con buena técnica antes de buscar más repeticiones o más dificultad.",
+            motivo: "El avance reciente fue grande: conviene afianzarlo antes de seguir exigiendo más."
+          }
+        : {
+            sugerencia: "Repetí la carga actual y buscá igualar o mejorar levemente las repeticiones.",
+            motivo: "Hubo un avance reciente importante: conviene consolidarlo antes de seguir progresando."
+          };
+    }
+    if (estado === "Recuperar rendimiento") {
+      return ctx.esPesoCorporal
+        ? {
+            sugerencia: "Repetí la misma ejecución y buscá recuperar las repeticiones antes de exigir más.",
+            motivo: "Las repeticiones bajaron respecto de la ejecución anterior."
+          }
+        : {
+            sugerencia: "Repetí la carga de la última sesión y buscá recuperar repeticiones antes de aumentar.",
+            motivo: "El rendimiento cayó respecto de la ejecución anterior."
+          };
+    }
+    // "Seguimiento cualitativo"
+    return {
+      sugerencia: "Seguí registrando esta actividad; todavía no hay una métrica numérica útil para sugerir progresión.",
+      motivo: "No hay peso ni repeticiones que permitan medir una progresión concreta."
+    };
+  }
+
+  /* calcularRecomendacionEjercicio: función pura (secciones 4-10 y 13-14
+     del pedido). Entrada = datos de la ÚLTIMA ejecución real + su
+     comparación contra la anterior + el rango objetivo de la rutina (si
+     existe). Nunca recibe RPE "promedio histórico": el RPE es el de la
+     sesión de la última ejecución únicamente (sección 11), y nunca se
+     inventa si no existe. */
+  function calcularRecomendacionEjercicio(input) {
+    var cantidadEjecuciones = input.cantidadEjecuciones;
+    var rpeSesion = input.rpeSesion;
+    var rpeDisponible = typeof rpeSesion === "number";
+
+    if (!(cantidadEjecuciones >= 2)) {
+      return {
+        confianza: "insuficiente",
+        mensaje: "Datos insuficientes para recomendar progresión.",
+        estado: "Datos insuficientes", sugerencia: null, motivo: null, rpeDisponible: rpeDisponible
+      };
+    }
+
+    var esPesoCorporal = input.pesoMaximoUltimo === 0;
+    var rpeAlto = rpeDisponible && rpeSesion >= 9;
+    var estado;
+
+    if (esPesoCorporal && input.repsTotalesUltimo === 0) {
+      /* Sección 13: ni peso ni reps -> no hay ninguna métrica progresiva
+         útil (ej. una actividad puramente cualitativa). */
+      estado = "Seguimiento cualitativo";
+    } else if (esPesoCorporal) {
+      if (cambioClaroNegativo(input.cambioRepsPct)) {
+        estado = "Recuperar rendimiento";
+      } else if (input.rangoReps && todasAlTopeOMas(input.repsEnSeriesPrincipales, input.rangoReps.max)) {
+        estado = "Mantener y consolidar";
+      } else {
+        estado = "Sumar repeticiones";
+      }
+    } else if (input.cambioPesoMaximoPct > 0) {
+      /* Sección 9, evaluado ANTES que la caída (sección 10): si la carga
+         subió recién, una baja de reps/volumen es la consecuencia
+         ESPERABLE de ese aumento, no un fracaso de rendimiento. Nunca se
+         interpreta como "Recuperar rendimiento" solo porque se hizo
+         menos reps con más peso. */
+      estado = "Mantener y consolidar";
+    } else if (cambioClaroNegativo(input.cambioVolumenPct) || cambioClaroNegativo(input.cambioRepsPct)) {
+      estado = "Recuperar rendimiento";
+    } else if (
+      (input.cambioVolumenPct !== null && input.cambioVolumenPct > 15) ||
+      (input.tendenciaVolumen !== null && input.tendenciaVolumen > 8)
+    ) {
+      /* Sección 9: salto fuerte de volumen o tendencia acelerada ->
+         consolidar antes de seguir exigiendo. */
+      estado = "Mantener y consolidar";
+    } else if (input.rangoReps && todasAlTopeOMas(input.repsEnSeriesPrincipales, input.rangoReps.max)) {
+      /* Sección 8: el RPE alto bloquea la subida de carga aunque se haya
+         alcanzado el tope del rango (sección 11, nunca se exige fallo). */
+      estado = rpeAlto ? "Mantener y consolidar" : "Subir carga";
+    } else {
+      /* Sección 5: sin rango configurado, o dentro/por debajo del rango
+         sin caída -> siempre conservador, nunca "Subir carga" sin un
+         rango objetivo contra el cual confirmar que se topó el techo. */
+      estado = "Sumar repeticiones";
+    }
+
+    var textos = textosRecomendacionEjercicio(estado, {
+      pesoMaximo: input.pesoMaximoUltimo, esPesoCorporal: esPesoCorporal
+    });
+
+    if (estado === "Recuperar rendimiento" && rpeAlto && (cambioFuerteNegativo(input.cambioVolumenPct) || cambioFuerteNegativo(input.cambioRepsPct))) {
+      textos = {
+        sugerencia: textos.sugerencia,
+        motivo: textos.motivo + " Además, fue una sesión muy exigente: priorizá la técnica antes que el peso."
+      };
+    }
+
+    return {
+      confianza: cantidadEjecuciones >= 3 ? "normal" : "inicial",
+      mensaje: null,
+      estado: estado,
+      sugerencia: textos.sugerencia,
+      motivo: textos.motivo,
+      rpeDisponible: rpeDisponible
+    };
+  }
+
   /* --- Series semanales completas por bloque / por ejercicio --- */
 
   function construirSerieSemanalBloque(sesiones, bloqueId) {
@@ -1158,35 +1411,43 @@ GYMAPP.progreso = (function () {
     return entrada.cambioPct === null ? "Sin comparación" : formatearPct(entrada.cambioPct);
   }
 
-  /* --- UI: sección "Próxima sesión" (PROG-02) ---
+  /* --- UI: sección "Próxima sesión" / "Próxima vez en este ejercicio" ---
+     (PROG-02 / PROG-03)
 
      Vive debajo de "Análisis semanal" y reacciona a la MISMA selección de
-     bloque (estadoAnalisis): no tiene selector propio. Sección 10: con un
-     ejercicio puntual seleccionado nunca se inventa una recomendación por
-     ejercicio todavía (eso es PROG-03) -se avisa explícitamente-, y
-     sección 12: un bloque histórico (ya no activo) muestra el análisis
-     pero nunca una recomendación de próxima sesión, porque ya no hay
-     "próxima sesión" que planificar para un bloque que no se entrena. */
+     bloque/ejercicio (estadoAnalisis): no tiene selector propio. Sección
+     16 del pedido de PROG-03: nunca se muestran ambas recomendaciones a
+     la vez. "Todo el bloque" (ejercicioId vacío) -> PROG-02; un ejercicio
+     puntual seleccionado -> PROG-03. Un bloque histórico (ya no activo)
+     sigue sin recomendación de bloque (ya no hay "próxima sesión" que
+     planificar para un bloque que no se entrena), pero un EJERCICIO
+     histórico sí sigue siendo analizable (PROG-03 sección 17: depende
+     solo del historial de sesiones, nunca de si el bloque sigue activo). */
 
   function renderSeccionProximaSesion(data) {
     var opcionesBloques = construirOpcionesBloquesAnalisis(data);
     if (!opcionesBloques.length || !estadoAnalisis.bloqueId) return "";
 
-    var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
+    var titulo;
     var cuerpo;
 
     if (estadoAnalisis.ejercicioId) {
-      cuerpo = '<p class="nota">La recomendación de progresión se calcula por bloque. La recomendación específica por ejercicio llegará en una próxima versión.</p>';
-    } else if (!esActivo) {
-      cuerpo = '<p class="nota">Este bloque ya no forma parte de la rutina actual.</p>';
+      titulo = "Próxima vez en este ejercicio";
+      cuerpo = renderProximaVezEjercicio(data);
     } else {
-      var serieBloque = construirSerieSemanalBloque(data.sesiones_entrenamiento, estadoAnalisis.bloqueId);
-      cuerpo = renderProximaSesionBloque(serieBloque);
+      titulo = "Próxima sesión";
+      var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
+      if (!esActivo) {
+        cuerpo = '<p class="nota">Este bloque ya no forma parte de la rutina actual.</p>';
+      } else {
+        var serieBloque = construirSerieSemanalBloque(data.sesiones_entrenamiento, estadoAnalisis.bloqueId);
+        cuerpo = renderProximaSesionBloque(serieBloque);
+      }
     }
 
     return (
       '<div class="progreso-panel progreso-proxima-sesion">' +
-      "<h3>Próxima sesión</h3>" +
+      "<h3>" + titulo + "</h3>" +
       cuerpo +
       "</div>"
     );
@@ -1269,6 +1530,83 @@ GYMAPP.progreso = (function () {
       (!r.rpeDisponible ? '<p class="nota proxima-sesion-nota">RPE no disponible: recomendación con menor confianza.</p>' : "") +
       '<p class="nota proxima-sesion-nota"><strong>Confianza:</strong> ' + etiquetaConfianza + "</p>" +
       '<p class="nota proxima-sesion-nota">Considerá una serie adicional solo si varias semanas siguen estancadas y recuperás bien.</p>' +
+      '<p class="nota proxima-sesion-nota">Usá técnica y sensaciones como prioridad. El objetivo es orientativo.</p>' +
+      "</div>"
+    );
+  }
+
+  /* --- UI: "Próxima vez en este ejercicio" (PROG-03) --- */
+
+  function renderProximaVezEjercicio(data) {
+    var ejecuciones = reconstruirEjecucionesEjercicio(data.sesiones_entrenamiento, estadoAnalisis.ejercicioId);
+    if (!ejecuciones.length) {
+      return '<p class="nota">Todavía no hay registros de este ejercicio.</p>';
+    }
+
+    var serieConCambios = construirSerieEjecucionesConCambios(ejecuciones);
+    var ultimo = serieConCambios[serieConCambios.length - 1];
+    var anterior = serieConCambios.length >= 2 ? serieConCambios[serieConCambios.length - 2] : null;
+
+    var ejercicioRutina = obtenerEjercicioDeRutina(data, estadoAnalisis.bloqueId, estadoAnalisis.ejercicioId);
+    var rangoReps = ejercicioRutina ? parsearRangoReps(ejercicioRutina.reps_objetivo) : null;
+
+    var recomendacion = calcularRecomendacionEjercicio({
+      cantidadEjecuciones: ejecuciones.length,
+      pesoMaximoUltimo: ultimo.datos.pesoMaximo,
+      cambioPesoMaximoPct: anterior ? calcularCambioPorcentual(ultimo.datos.pesoMaximo, anterior.datos.pesoMaximo) : null,
+      repsTotalesUltimo: ultimo.datos.repsTotales,
+      cambioRepsPct: anterior ? calcularCambioPorcentual(ultimo.datos.repsTotales, anterior.datos.repsTotales) : null,
+      cambioVolumenPct: ultimo.cambioPct,
+      tendenciaVolumen: ultimo.tendencia3,
+      rpeSesion: ultimo.datos.rpeSesion,
+      rangoReps: rangoReps,
+      repsEnSeriesPrincipales: ultimo.datos.repsEnSeriesPrincipales
+    });
+
+    if (recomendacion.confianza === "insuficiente") {
+      return '<p class="nota">' + recomendacion.mensaje + "</p>";
+    }
+
+    return renderTarjetaRecomendacionEjercicio(recomendacion, ultimo.datos);
+  }
+
+  var ICONO_ESTADO_EJERCICIO = {
+    "Sumar repeticiones": "↑",
+    "Subir carga": "↑",
+    "Mantener y consolidar": "■",
+    "Recuperar rendimiento": "↓",
+    "Seguimiento cualitativo": "•"
+  };
+
+  /* "Última referencia" (sección 15): peso máximo + reps de CADA serie de
+     la última ejecución (no solo las "principales": acá es solo una
+     referencia informativa, no la señal usada para decidir la regla).
+     Con peso corporal nunca se inventa un "0 kg" (sección 13: nada de
+     kilos ficticios), se muestran directamente las reps. */
+  function formatearUltimaReferenciaEjercicio(datosUltimaEjecucion) {
+    var repsPorSerie = datosUltimaEjecucion.series.map(function (s) { return Number(s.reps) || 0; }).join("/");
+    if (datosUltimaEjecucion.pesoMaximo === 0) {
+      return repsPorSerie + " reps";
+    }
+    return formatearKg(datosUltimaEjecucion.pesoMaximo) + " · " + repsPorSerie;
+  }
+
+  function renderTarjetaRecomendacionEjercicio(r, datosUltimaEjecucion) {
+    var etiquetaConfianza = r.confianza === "normal" ? "Normal" : "Inicial";
+    var icono = ICONO_ESTADO_EJERCICIO[r.estado] || "";
+
+    return (
+      '<div class="analisis-semana-actual proxima-sesion-tarjeta">' +
+      '<div class="analisis-stats">' +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Estado</span><span class="analisis-stat-valor">' + icono + " " + GYMAPP.util.escapeHtml(r.estado) + "</span></div>" +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Última referencia</span><span class="analisis-stat-valor">' + GYMAPP.util.escapeHtml(formatearUltimaReferenciaEjercicio(datosUltimaEjecucion)) + "</span></div>" +
+      "</div>" +
+      '<p class="nota proxima-sesion-nota"><strong>Sugerencia:</strong> ' + GYMAPP.util.escapeHtml(r.sugerencia) + "</p>" +
+      '<p class="nota proxima-sesion-nota"><strong>Motivo:</strong> ' + GYMAPP.util.escapeHtml(r.motivo) + "</p>" +
+      '<p class="nota proxima-sesion-nota"><strong>Confianza:</strong> ' + etiquetaConfianza + "</p>" +
+      (r.rpeDisponible
+        ? '<p class="nota proxima-sesion-nota"><strong>Contexto:</strong> RPE de la sesión: ' + datosUltimaEjecucion.rpeSesion + "</p>"
+        : "") +
       '<p class="nota proxima-sesion-nota">Usá técnica y sensaciones como prioridad. El objetivo es orientativo.</p>' +
       "</div>"
     );
@@ -1667,6 +2005,12 @@ GYMAPP.progreso = (function () {
     /* PROG-02: expuestas para pruebas unitarias del motor de recomendación. */
     calcularRecomendacionProximaSesion: calcularRecomendacionProximaSesion,
     contarSemanasRealizadas: contarSemanasRealizadas,
-    calcularAdherenciaBaja: calcularAdherenciaBaja
+    calcularAdherenciaBaja: calcularAdherenciaBaja,
+    /* PROG-03: expuestas para pruebas unitarias del motor por ejercicio. */
+    reconstruirEjecucionesEjercicio: reconstruirEjecucionesEjercicio,
+    construirSerieEjecucionesConCambios: construirSerieEjecucionesConCambios,
+    parsearRangoReps: parsearRangoReps,
+    obtenerEjercicioDeRutina: obtenerEjercicioDeRutina,
+    calcularRecomendacionEjercicio: calcularRecomendacionEjercicio
   };
 })();
