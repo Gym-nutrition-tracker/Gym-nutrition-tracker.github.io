@@ -387,6 +387,10 @@ body {
   font-size: 0.88rem;
 }
 
+.nota.oculto {
+  display: none;
+}
+
 .placeholder {
   display: flex;
   flex-direction: column;
@@ -829,6 +833,10 @@ body {
   text-align: center;
   gap: 6px;
   padding: 28px 12px 12px;
+}
+
+.progreso-estado-vacio.oculto {
+  display: none;
 }
 
 .progreso-estado-vacio-icono {
