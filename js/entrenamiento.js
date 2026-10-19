@@ -68,7 +68,7 @@ GYMAPP.entrenamiento = (function () {
        histórica (ver cargarParaEditar); no hay que completarlo con la
        rutina actual. */
     if (!estado.editandoId && estado.tipo === "gimnasio" && estado.diaRutinaId) {
-      var dia = buscarDia(data.rutina.dias, estado.diaRutinaId);
+      var dia = GYMAPP.planes.buscarDiaActivo(data, estado.diaRutinaId);
       if (dia) asegurarSeriesInicializadas(dia);
     }
 
@@ -77,10 +77,6 @@ GYMAPP.entrenamiento = (function () {
       bindEventos(container);
       container.dataset.entrenarBound = "1";
     }
-  }
-
-  function buscarDia(dias, diaId) {
-    return dias.filter(function (d) { return d.id === diaId; })[0] || null;
   }
 
   function asegurarSeriesInicializadas(dia) {
@@ -182,7 +178,7 @@ GYMAPP.entrenamiento = (function () {
   function renderGimnasio(data, estado) {
     if (estado.editandoId) return renderGimnasioEdicion(estado);
 
-    var dias = data.rutina.dias;
+    var dias = GYMAPP.planes.diasDelPlanActivo(data);
     if (!dias.length) {
       return '<p class="nota">Todavía no tenés días en tu rutina. Cargá uno desde el ícono de ajustes (Rutina).</p>';
     }
@@ -198,7 +194,7 @@ GYMAPP.entrenamiento = (function () {
 
     if (!estado.diaRutinaId) return html;
 
-    var dia = buscarDia(dias, estado.diaRutinaId);
+    var dia = GYMAPP.planes.buscarDiaActivo(data, estado.diaRutinaId);
     if (!dia) return html;
 
     if (!dia.ejercicios.length) {
@@ -275,14 +271,6 @@ GYMAPP.entrenamiento = (function () {
      en el día original de la sesión), para poder mostrar su nombre incluso
      si el ejercicio se movió de día. Devuelve null si ya no existe en
      ningún lado. */
-  function buscarEjercicioEnRutina(dias, ejercicioId) {
-    for (var i = 0; i < dias.length; i++) {
-      var encontrado = dias[i].ejercicios.filter(function (e) { return e.id === ejercicioId; })[0];
-      if (encontrado) return encontrado;
-    }
-    return null;
-  }
-
   function renderSerieInput(ejercicioId, indice, serie) {
     return (
       '<div class="serie-input-row" data-ejercicio-id="' + ejercicioId + '" data-serie-indice="' + indice + '">' +
@@ -472,7 +460,7 @@ GYMAPP.entrenamiento = (function () {
         seriesPorEjercicio[er.ejercicio_id] = er.series.map(function (s) {
           return { peso_kg: String(s.peso_kg), reps: String(s.reps) };
         });
-        var ejercicioRutina = buscarEjercicioEnRutina(data.rutina.dias, er.ejercicio_id);
+        var ejercicioRutina = GYMAPP.planes.buscarEjercicioActivo(data, er.ejercicio_id);
         ejerciciosHistoricos.push({
           ejercicio_id: er.ejercicio_id,
           /* Fuera de la rutina actual: nombre real si se conoce (módulo
@@ -754,7 +742,7 @@ GYMAPP.entrenamiento = (function () {
           mostrarMensaje(container, "Elegí un día de rutina antes de guardar.", "error");
           return;
         }
-        var dia = buscarDia(data.rutina.dias, estado.diaRutinaId);
+        var dia = GYMAPP.planes.buscarDiaActivo(data, estado.diaRutinaId);
         if (!dia) {
           mostrarMensaje(container, "El día seleccionado ya no existe en tu rutina.", "error");
           return;

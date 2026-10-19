@@ -6,7 +6,7 @@ GYMAPP.rutina = (function () {
 
   function render(container) {
     var data = GYMAPP.storage.getData();
-    container.innerHTML = template(data.rutina.dias, data.usuario);
+    container.innerHTML = template(GYMAPP.planes.diasDelPlanActivo(data), data.usuario);
     if (!container.dataset.rutinaBound) {
       bindEventos(container);
       container.dataset.rutinaBound = "1";

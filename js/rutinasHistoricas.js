@@ -118,10 +118,8 @@ GYMAPP.rutinasHistoricas = (function () {
      2. historial persistido (futuro) / mapa legacy;
      3. "Bloque anterior". */
   function resolverNombreDiaRutina(data, diaRutinaId) {
-    var dias = (data && data.rutina && data.rutina.dias) || [];
-    for (var i = 0; i < dias.length; i++) {
-      if (dias[i].id === diaRutinaId) return dias[i].nombre;
-    }
+    var diaActivo = GYMAPP.planes.buscarDiaActivo(data, diaRutinaId);
+    if (diaActivo) return diaActivo.nombre;
     var historico = resolverNombreBloqueHistorico(data, diaRutinaId);
     return historico ? historico.nombre : NOMBRE_BLOQUE_DESCONOCIDO;
   }
@@ -137,13 +135,8 @@ GYMAPP.rutinasHistoricas = (function () {
      2. historial persistido (futuro);
      3. mapa legacy. */
   function nombreEjercicioConocido(data, ejercicioId) {
-    var dias = (data && data.rutina && data.rutina.dias) || [];
-    for (var i = 0; i < dias.length; i++) {
-      var ejercicios = dias[i].ejercicios || [];
-      for (var j = 0; j < ejercicios.length; j++) {
-        if (ejercicios[j].id === ejercicioId) return ejercicios[j].nombre || "(sin nombre)";
-      }
-    }
+    var ejercicioActivo = GYMAPP.planes.buscarEjercicioActivo(data, ejercicioId);
+    if (ejercicioActivo) return ejercicioActivo.nombre || "(sin nombre)";
     var persistido = nombreEjercicioDesdeHistorialPersistido(data, ejercicioId);
     if (persistido) return persistido;
     return Object.prototype.hasOwnProperty.call(NOMBRES_EJERCICIOS_LEGACY, ejercicioId) ? NOMBRES_EJERCICIOS_LEGACY[ejercicioId] : null;

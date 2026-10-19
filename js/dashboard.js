@@ -97,7 +97,7 @@ GYMAPP.dashboard = (function () {
   }
 
   function calcularProximoDia(data) {
-    var dias = data.rutina.dias;
+    var dias = GYMAPP.planes.diasDelPlanActivo(data);
     if (!dias.length) return null;
 
     var sesionesGimnasio = data.sesiones_entrenamiento
@@ -112,26 +112,18 @@ GYMAPP.dashboard = (function () {
     return dias[(indiceUltimo + 1) % dias.length];
   }
 
-  /* Busca un ejercicio por id en TODOS los días de la rutina actual (mismo
-     criterio que usa entrenamiento.js al editar sesiones históricas).
-     Devuelve null si el ejercicio ya no existe en ningún lado. */
-  function buscarEjercicioEnRutina(dias, ejercicioId) {
-    for (var i = 0; i < dias.length; i++) {
-      var encontrado = dias[i].ejercicios.filter(function (e) { return e.id === ejercicioId; })[0];
-      if (encontrado) return encontrado;
-    }
-    return null;
-  }
-
   /* DASH-04 (corrección confirmada): antes se tomaban los grupos musculares
      de dia.ejercicios (la configuración ACTUAL del día de rutina), no de lo
      que la sesión realmente registró. Si el día se editó después (se le
      cambiaron los ejercicios), la alerta comparaba grupos musculares que
      nunca se entrenaron en esa sesión. Ahora se derivan de
      ejercicios_realizados, la única fuente confiable de qué se entrenó. */
-  function obtenerGruposDeSesion(dias, sesion) {
+  /* El ejercicio se busca en TODOS los días del plan activo (mismo
+     criterio que entrenamiento.js al editar sesiones históricas); null si
+     ya no existe en ningún lado. */
+  function obtenerGruposDeSesion(data, sesion) {
     var grupos = (sesion.ejercicios_realizados || []).map(function (er) {
-      var ejercicio = buscarEjercicioEnRutina(dias, er.ejercicio_id);
+      var ejercicio = GYMAPP.planes.buscarEjercicioActivo(data, er.ejercicio_id);
       return ejercicio ? (ejercicio.grupo_muscular || "").trim() : "";
     }).filter(Boolean);
     return grupos.filter(function (g, i) { return grupos.indexOf(g) === i; });
@@ -144,8 +136,8 @@ GYMAPP.dashboard = (function () {
 
     if (sesionesGimnasio.length < 2) return null;
 
-    var gruposA = obtenerGruposDeSesion(data.rutina.dias, sesionesGimnasio[0]);
-    var gruposB = obtenerGruposDeSesion(data.rutina.dias, sesionesGimnasio[1]);
+    var gruposA = obtenerGruposDeSesion(data, sesionesGimnasio[0]);
+    var gruposB = obtenerGruposDeSesion(data, sesionesGimnasio[1]);
     var interseccion = gruposA.filter(function (g) { return gruposB.indexOf(g) !== -1; });
 
     return interseccion.length ? interseccion : null;

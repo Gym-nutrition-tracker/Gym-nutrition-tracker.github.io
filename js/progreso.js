@@ -50,7 +50,8 @@ GYMAPP.progreso = (function () {
      las opciones disponibles, igual criterio que ya usa
      renderSeccionAnalisisSemanal para no dejar la sección sin selección. */
   function primerBloqueActivoOInicial(data, opcionesBloques) {
-    if (data.rutina.dias.length) return data.rutina.dias[0].id;
+    var diasActivos = GYMAPP.planes.diasDelPlanActivo(data);
+    if (diasActivos.length) return diasActivos[0].id;
     var historicos = construirOpcionesBloquesHistoricos(data);
     return historicos.length ? historicos[0].id : opcionesBloques[0].id;
   }
@@ -276,7 +277,7 @@ GYMAPP.progreso = (function () {
      entrenaba en su momento, así que nunca se etiqueta como
      "pendiente"/"completado" (eso implicaría inventar un dato). */
   function bloqueEsActivo(data, bloqueId) {
-    return data.rutina.dias.some(function (d) { return d.id === bloqueId; });
+    return !!GYMAPP.planes.buscarDiaActivo(data, bloqueId);
   }
 
   /* Estado semanal del bloque (sección 2), independiente de la vista
@@ -860,9 +861,7 @@ GYMAPP.progreso = (function () {
      el bloque actual (histórico): en ese caso nunca se inventa un rango,
      el motor cae directo al criterio conservador de la sección 5. */
   function obtenerEjercicioDeRutina(data, bloqueId, ejercicioId) {
-    var dia = data.rutina.dias.filter(function (d) { return d.id === bloqueId; })[0];
-    if (!dia) return null;
-    return dia.ejercicios.filter(function (ej) { return ej.id === ejercicioId; })[0] || null;
+    return GYMAPP.planes.buscarEjercicioEnDiaActivo(data, bloqueId, ejercicioId);
   }
 
   /* Umbrales de caída (secciones 10/13/14): el pedido dice "cae de forma
@@ -1266,7 +1265,7 @@ GYMAPP.progreso = (function () {
 
   function construirInputEstadoPlan(data, hoyISO) {
     var semanaActual = inicioDeSemanaISO(hoyISO);
-    var bloquesActivos = data.rutina.dias.map(function (d) { return d.id; });
+    var bloquesActivos = GYMAPP.planes.diasDelPlanActivo(data).map(function (d) { return d.id; });
     var esActivo = {};
     bloquesActivos.forEach(function (id) { esActivo[id] = true; });
 
@@ -1330,7 +1329,7 @@ GYMAPP.progreso = (function () {
     });
 
     var ejercicios = [];
-    data.rutina.dias.forEach(function (dia) {
+    GYMAPP.planes.diasDelPlanActivo(data).forEach(function (dia) {
       (dia.ejercicios || []).forEach(function (ej) {
         var ejecuciones = deLaRutina
           .map(function (x) {
@@ -1393,7 +1392,7 @@ GYMAPP.progreso = (function () {
       });
     });
 
-    var bloques = data.rutina.dias.map(function (dia) {
+    var bloques = GYMAPP.planes.diasDelPlanActivo(data).map(function (dia) {
       var serie = construirSerieSemanalBloque(data.sesiones_entrenamiento, dia.id);
       var ultimaRealizada = obtenerUltimaSemanaRealizada(serie);
       var estadoProg02 = null;
@@ -1830,7 +1829,7 @@ GYMAPP.progreso = (function () {
 
   function construirOpcionesBloquesAnalisis(data) {
     var mapa = {};
-    data.rutina.dias.forEach(function (dia) { mapa[dia.id] = dia.nombre || "(sin nombre)"; });
+    GYMAPP.planes.diasDelPlanActivo(data).forEach(function (dia) { mapa[dia.id] = dia.nombre || "(sin nombre)"; });
     data.sesiones_entrenamiento.forEach(function (s) {
       if (s.tipo === "gimnasio" && s.dia_rutina_id && !mapa[s.dia_rutina_id]) {
         mapa[s.dia_rutina_id] = "Bloque eliminado de la rutina";
@@ -1854,7 +1853,7 @@ GYMAPP.progreso = (function () {
   var VALOR_HISTORIAL_RUTINAS = "__historial__";
 
   function construirOpcionesBloquesActivos(data) {
-    return data.rutina.dias.map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
+    return GYMAPP.planes.diasDelPlanActivo(data).map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
   }
 
   /* El nombre de un bloque histórico (historial persistido futuro o mapa
@@ -1866,7 +1865,7 @@ GYMAPP.progreso = (function () {
 
   function construirOpcionesBloquesHistoricos(data) {
     var activos = {};
-    data.rutina.dias.forEach(function (dia) { activos[dia.id] = true; });
+    GYMAPP.planes.diasDelPlanActivo(data).forEach(function (dia) { activos[dia.id] = true; });
 
     var porBloque = {};
     data.sesiones_entrenamiento.forEach(function (sesion) {
@@ -1964,7 +1963,7 @@ GYMAPP.progreso = (function () {
 
   function construirOpcionesEjerciciosDeBloque(data, bloqueId) {
     var mapa = {};
-    var diaActual = data.rutina.dias.filter(function (d) { return d.id === bloqueId; })[0];
+    var diaActual = GYMAPP.planes.buscarDiaActivo(data, bloqueId);
     if (diaActual) {
       diaActual.ejercicios.forEach(function (ej) { mapa[ej.id] = ej.nombre || "(sin nombre)"; });
     }
