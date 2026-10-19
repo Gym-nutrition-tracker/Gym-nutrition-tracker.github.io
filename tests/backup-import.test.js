@@ -53,32 +53,35 @@ function sinEscrituras(e, fn) {
 }
 
 /* 1 */
-test("import schema 0 → migra en memoria a 2 y guarda", () => {
+test("import schema 0 → migra en memoria a 3 y guarda", () => {
   const { e, B } = entorno();
   const p = sinEscrituras(e, () => B.prepararImportacionBackup(JSON.stringify(backup(0))));
   assert.equal(p.ok, true);
   assert.equal(p.versionOrigen, 0);
-  assert.equal(p.datos.schema_version, 2);
+  assert.equal(p.versionDestino, 3);
+  assert.equal(p.datos.schema_version, 3);
   assert.deepEqual(clonar(p.datos.usuario.actividades), [{ tipo: "gimnasio", meta_semanal: 5 }, { tipo: "futbol", meta_semanal: 2 }]);
   assert.equal(B.aplicarImportacionBackup(p, { nombreArchivo: "b0.json" }).ok, true);
   const g = e.leer(CLAVE);
-  assert.equal(g.schema_version, 2);
+  assert.equal(g.schema_version, 3);
   assert.deepEqual(g.sesiones_entrenamiento, backup(0).sesiones_entrenamiento, "sesiones intactas");
+  assert.equal(g.rutina.plan_activo_id, "plan-mig-B1");
+  assert.deepEqual(g.rutina.planes[0].dias.map((d) => d.id), ["B1"]);
 });
 
 /* 2 */
-test("import schema 1 → migra a 2", () => {
+test("import schema 1 → migra a 3", () => {
   const { e, B } = entorno();
   const p = B.prepararImportacionBackup(JSON.stringify(backup(1)));
   assert.equal(p.ok, true);
   assert.equal(p.versionOrigen, 1);
   assert.equal(B.aplicarImportacionBackup(p).ok, true);
-  assert.equal(e.leer(CLAVE).schema_version, 2);
+  assert.equal(e.leer(CLAVE).schema_version, 3);
   assert.equal(e.leer(CLAVE).usuario.actividades.length, 2);
 });
 
 /* 3 */
-test("import schema 2 → guarda sin corregir información existente", () => {
+test("import schema 2 → migra a 3 sin corregir información existente", () => {
   const { e, B } = entorno();
   const b = backup(2);
   b.campo_extra = { conservar: true };
@@ -88,7 +91,8 @@ test("import schema 2 → guarda sin corregir información existente", () => {
   const g = e.leer(CLAVE);
   assert.deepEqual(g.usuario.actividades, [{ tipo: "futbol", meta_semanal: 1 }], "no pisa actividades existentes");
   assert.deepEqual(g.campo_extra, { conservar: true });
-  assert.deepEqual(g.rutina, b.rutina);
+  const ej = g.rutina.planes[0].dias[0].ejercicios[0];
+  assert.deepEqual([ej.id, ej.nombre, ej.grupo_muscular, ej.series_objetivo, ej.reps_objetivo], ["B1-e1", "Press", "Pecho", 4, "10"]);
   assert.deepEqual(g.sesiones_entrenamiento, b.sesiones_entrenamiento);
 });
 
@@ -100,8 +104,8 @@ test("defaults: solo se completan claves ausentes que las migraciones ya contemp
 });
 
 /* 4 y 5 */
-[3, 4, 99].forEach((v) => {
-  test("import schema " + v + " (la app soporta 2) → rechazado sin tocar storage", () => {
+[4, 5, 99].forEach((v) => {
+  test("import schema " + v + " (la app soporta 3) → rechazado sin tocar storage", () => {
     const { e, B } = entorno();
     const metaAntes = e.localStorage.getItem(META);
     const p = sinEscrituras(e, () => B.prepararImportacionBackup(JSON.stringify(backup(v))));
@@ -236,7 +240,37 @@ test("3.E: tras importar, la siguiente sincronización compara y muestra conflic
   assert.equal(e.nube.fila.revision, 7);
 });
 
-test("schema_version de la app sigue en 2", () => {
+test("schema_version de la app es 3", () => {
   const { e } = entorno();
-  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
+});
+
+test("import schema 3 → valida y guarda tal cual (sin volver a migrar)", () => {
+  const { e, B } = entorno();
+  const b3 = B.prepararImportacionBackup(JSON.stringify(backup(2))).datos;
+  b3.usuario.nombre = "Backup v3";
+  const p = B.prepararImportacionBackup(JSON.stringify(b3));
+  assert.equal(p.ok, true, p.error);
+  assert.equal(p.versionOrigen, 3);
+  assert.deepEqual(clonar(p.datos), clonar(b3), "idéntico, sin cambios");
+  assert.equal(B.aplicarImportacionBackup(p).ok, true);
+  assert.equal(e.leer(CLAVE).usuario.nombre, "Backup v3");
+});
+
+test("import schema 3 inválido (sin plan activo, plan_id repetido, día sin orden) → rechazado", () => {
+  const { e, B } = entorno();
+  const base = B.prepararImportacionBackup(JSON.stringify(backup(2))).datos;
+  const casos = [
+    (d) => { d.rutina.plan_activo_id = "no-existe"; },
+    (d) => { d.rutina.planes.push(clonar(d.rutina.planes[0])); },
+    (d) => { delete d.rutina.planes[0].dias[0].orden; },
+    (d) => { d.rutina.planes = {}; },
+    (d) => { d.rutina = { dias: [] }; }
+  ];
+  casos.forEach((romper) => {
+    const d = clonar(base);
+    romper(d);
+    const p = sinEscrituras(e, () => B.prepararImportacionBackup(JSON.stringify(d)));
+    assert.equal(p.ok, false, String(romper));
+  });
 });

@@ -177,7 +177,12 @@ GYMAPP.sync = (function () {
     /* Mismo merge que hace storage.load() tras migrar: completa cualquier
        colección que falte (sesiones_entrenamiento, registros_nutricion,
        etc.) sin pisar nada de lo que sí vino en el payload remoto. */
-    return Object.assign(GYMAPP.storage.getDefaultData(), dataMigrada);
+    var resultado = Object.assign(GYMAPP.storage.getDefaultData(), dataMigrada);
+    /* E2: el resultado tiene que ser un schema actual válido. */
+    if (GYMAPP.storage.validarDatosV3(resultado)) {
+      throw new Error("Los datos guardados en la nube no tienen la estructura esperada por la app.");
+    }
+    return resultado;
   }
 
   /* Backup local temporal, exclusivamente como protección ante una
@@ -404,6 +409,9 @@ GYMAPP.sync = (function () {
        "baseline_adoptado" primera vez, local == remoto: solo se registra
                            la revision remota, sin subir nada.
        "sin_cambios"       revision conocida y datos iguales: no se sube.
+       "baseline_actualizada" revision distinta pero datos idénticos (ya
+                           normalizados): se adopta la revisión remota, sin
+                           RPC ni conflicto (E2, estrategia A).
        "actualizado"       la RPC respondió "updated".
        "conflicto"         motivo: "sin_baseline" | "revision_distinta" |
                            "rpc_conflict" | "fila_creada_en_paralelo".
@@ -452,6 +460,13 @@ GYMAPP.sync = (function () {
       }
 
       if (meta.last_known_revision !== revisionRemota) {
+        /* E2 (estrategia A): con ambos lados ya normalizados al schema
+           actual, si los datos son exactamente equivalentes no hay nada que
+           decidir: se adopta la revisión remota como baseline, sin subir
+           nada ni mostrar conflicto. Si difieren, conflicto como siempre. */
+        if (iguales) {
+          return { estado: "baseline_actualizada", revision: revisionRemota, metaGuardada: guardarSyncMeta(userId, revisionRemota) };
+        }
         return {
           estado: "conflicto", motivo: "revision_distinta", userId: userId,
           revisionConocida: meta.last_known_revision, revisionRemota: revisionRemota
@@ -837,6 +852,8 @@ GYMAPP.sync = (function () {
         texto = "Este dispositivo ya tenía los mismos datos que la nube (revisión " + r.revision + "). No hizo falta subir nada.";
       } else if (r.estado === "sin_cambios") {
         texto = "Ya estaba todo sincronizado (revisión " + r.revision + "). No hizo falta subir nada.";
+      } else if (r.estado === "baseline_actualizada") {
+        texto = "Los datos ya coinciden con la nube. Se actualizó la referencia de sincronización. Revisión: " + r.revision + ".";
       } else {
         texto = "Datos sincronizados con la nube" + (r.revision != null ? ". Revisión: " + r.revision : "") + ".";
       }

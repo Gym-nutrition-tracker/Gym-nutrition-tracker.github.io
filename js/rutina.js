@@ -45,7 +45,7 @@ GYMAPP.rutina = (function () {
      agregar/quitar actividades y modificar su meta semanal marcando o
      desmarcando cada fila, reutilizando el mismo catálogo y helpers de
      GYMAPP.actividades que usa el onboarding. Desactivar una actividad acá
-     solo saca su entrada de usuario.actividades: nunca toca rutina.dias,
+     solo saca su entrada de usuario.actividades: nunca toca la rutina (planes),
      sesiones_entrenamiento, nutrición ni medidas_corporales. */
   function renderSeccionActividades(usuario) {
     var actividadesUsuario = GYMAPP.actividades.obtenerActividadesUsuario(usuario);
@@ -177,10 +177,10 @@ GYMAPP.rutina = (function () {
     var ejercicioId = filaEjercicio ? filaEjercicio.dataset.ejercicioId : null;
 
     var resultado = GYMAPP.storage.updateData(function (data) {
-      var dia = data.rutina.dias.find(function (d) { return d.id === diaId; });
+      var dia = GYMAPP.planes.buscarDiaActivo(data, diaId);
       if (!dia) return;
       if (ejercicioId) {
-        var ejercicio = dia.ejercicios.find(function (e) { return e.id === ejercicioId; });
+        var ejercicio = GYMAPP.planes.buscarEjercicioEnDiaActivo(data, diaId, ejercicioId);
         if (!ejercicio) return;
         ejercicio[campo] = campo === "series_objetivo" ? (parseInt(input.value, 10) || 0) : input.value;
       } else {
@@ -195,9 +195,9 @@ GYMAPP.rutina = (function () {
 
   function agregarDia(container) {
     var resultado = GYMAPP.storage.updateData(function (data) {
-      data.rutina.dias.push({
+      GYMAPP.planes.agregarDiaAlPlanActivo(data, {
         id: GYMAPP.util.generarId(),
-        nombre: "Día " + (data.rutina.dias.length + 1),
+        nombre: "Día " + (GYMAPP.planes.diasDelPlanActivo(data).length + 1),
         ejercicios: []
       });
     }, { alertaAutomatica: false });
@@ -211,7 +211,7 @@ GYMAPP.rutina = (function () {
   function borrarDia(container, diaId) {
     if (!confirm("¿Borrar este día de la rutina? El historial de sesiones ya guardadas no se ve afectado.")) return;
     var resultado = GYMAPP.storage.updateData(function (data) {
-      data.rutina.dias = data.rutina.dias.filter(function (d) { return d.id !== diaId; });
+      GYMAPP.planes.eliminarDiaDelPlanActivo(data, diaId);
     }, { alertaAutomatica: false });
     if (!resultado.guardado) {
       mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
@@ -222,9 +222,7 @@ GYMAPP.rutina = (function () {
 
   function agregarEjercicio(container, diaId) {
     var resultado = GYMAPP.storage.updateData(function (data) {
-      var dia = data.rutina.dias.find(function (d) { return d.id === diaId; });
-      if (!dia) return;
-      dia.ejercicios.push({
+      GYMAPP.planes.agregarEjercicioADiaActivo(data, diaId, {
         id: GYMAPP.util.generarId(),
         nombre: "",
         grupo_muscular: "",
@@ -241,9 +239,7 @@ GYMAPP.rutina = (function () {
 
   function borrarEjercicio(container, diaId, ejercicioId) {
     var resultado = GYMAPP.storage.updateData(function (data) {
-      var dia = data.rutina.dias.find(function (d) { return d.id === diaId; });
-      if (!dia) return;
-      dia.ejercicios = dia.ejercicios.filter(function (e) { return e.id !== ejercicioId; });
+      GYMAPP.planes.eliminarEjercicioDeDiaActivo(data, diaId, ejercicioId);
     }, { alertaAutomatica: false });
     if (!resultado.guardado) {
       mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
@@ -301,7 +297,9 @@ GYMAPP.rutina = (function () {
         return;
       }
       var resultado = GYMAPP.storage.updateData(function (data) {
-        data.rutina.dias = data.rutina.dias.concat(diasImportados);
+        /* E2: sigue agregando los días importados al plan activo, como
+           antes (el reemplazo/archivado de planes es E6). */
+        diasImportados.forEach(function (dia) { GYMAPP.planes.agregarDiaAlPlanActivo(data, dia); });
       }, { alertaAutomatica: false });
       if (!resultado.guardado) {
         mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
@@ -349,7 +347,7 @@ GYMAPP.rutina = (function () {
       }
 
       var avisoVersion = preparado.versionOrigen < preparado.versionDestino
-        ? "\n\nEl backup es de una versión anterior de la app y se va a actualizar al formato actual."
+        ? "\n\nEl backup es de una versión anterior de la app y se va a actualizar a versión " + preparado.versionDestino + "."
         : "";
       if (!confirm(
         "Esto reemplaza todos los datos actuales de la app (rutina, historial, nutrición) por los del archivo. ¿Continuar?" +

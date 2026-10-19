@@ -35,7 +35,7 @@ test("resolverNombreDiaRutina: activo, legacy conocidos y desconocido", () => {
 
 test("prioridad: un ID legacy que siga en la rutina actual usa su nombre actual", () => {
   const { e, d } = entorno();
-  d.rutina.dias.push({ id: "mu4c87ep730qj1", nombre: "Empuje v2", ejercicios: [] });
+  e.GYMAPP.planes.agregarDiaAlPlanActivo(d, { id: "mu4c87ep730qj1", nombre: "Empuje v2", ejercicios: [] });
   assert.equal(e.GYMAPP.rutinasHistoricas.resolverNombreDiaRutina(d, "mu4c87ep730qj1"), "Empuje v2");
 });
 
@@ -86,8 +86,8 @@ test("renderizar el historial no escribe localStorage, no cambia schema ni toca 
   e.GYMAPP.entrenamiento.renderHistorial(d);
   assert.equal(e.localStorage._escrituras.length, escrituras);
   assert.equal(e.localStorage.getItem(CLAVE), antes);
-  assert.equal(JSON.parse(antes).schema_version, 2);
-  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
+  assert.equal(JSON.parse(antes).schema_version, 3);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
   assert.equal(e.nube.llamadas.length, 0);
   const leer = (f) => fs.readFileSync(path.join(__dirname, "..", "js", f), "utf8");
   ["entrenamiento.js", "rutinasHistoricas.js"].forEach((f) => assert.doesNotMatch(leer(f), /GYMAPP\.sync|localStorage\./, f));

@@ -119,7 +119,7 @@ test("PROG-04 ignora los ejercicios históricos", () => {
 });
 
 /* 11, 12, 13 */
-test("0 escrituras, sesiones intactas, schema 2 y sin sync", () => {
+test("0 escrituras, sesiones intactas, schema 3 y sin sync", () => {
   const { e, P, R, d } = entorno();
   e.login();
   const antes = e.localStorage.getItem(CLAVE);
@@ -130,7 +130,7 @@ test("0 escrituras, sesiones intactas, schema 2 y sin sync", () => {
   P.calcularEstadoPlan(P.construirInputEstadoPlan(d, HOY));
   assert.equal(e.localStorage._escrituras.length, escrituras);
   assert.equal(e.localStorage.getItem(CLAVE), antes);
-  assert.equal(JSON.parse(antes).schema_version, 2);
+  assert.equal(JSON.parse(antes).schema_version, 3);
   assert.equal(e.nube.llamadas.length, 0);
 });
 

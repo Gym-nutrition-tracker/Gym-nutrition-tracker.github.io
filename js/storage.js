@@ -6,7 +6,23 @@ GYMAPP.storage = (function () {
 
   /* Versión actual del esquema de datos. Subir este número junto con un paso
      nuevo en migrarDatos() cada vez que la forma de los datos cambie. */
-  var VERSION_ESQUEMA_ACTUAL = 2;
+  var VERSION_ESQUEMA_ACTUAL = 3;
+
+  /* E2: copia del texto crudo previo a la migración 2 -> 3. Se escribe antes
+     de persistir el schema 3 y nunca se borra automáticamente. */
+  var CLAVE_PRE_MIGRACION_V3 = "gymNutritionTracker_preMigracionV3";
+
+  /* plan_id del plan vacío. Es EXACTAMENTE el que produce la migración de una
+     rutina schema 2 sin días ("plan-mig-vacio"), y el default usa los mismos
+     valores que esa migración: así un usuario nuevo y un usuario migrado sin
+     días tienen la misma rutina byte a byte (sin falsos conflictos de sync)
+     y getDefaultData() es siempre igual (sin IDs aleatorios ni fechas). */
+  var PLAN_ID_VACIO = "plan-mig-vacio";
+
+  /* Campos de prescripción de schema 3 que en E2 siempre nacen en null. */
+  var CAMPOS_PRESCRIPCION_V3 = ["rir_objetivo", "rpe_objetivo", "peso_objetivo", "pausa", "comentarios", "raw"];
+
+  var MENSAJE_MIGRACION_FALLIDA = "No se pudo actualizar el formato de tus datos. Tus datos anteriores se conservaron.";
 
   var MENSAJE_ERROR_GUARDADO = (
     "No se pudieron guardar los cambios. Es posible que no haya espacio disponible en el dispositivo, " +
@@ -25,11 +41,57 @@ GYMAPP.storage = (function () {
      nunca pisar datos que esta versión del código no sabe interpretar. */
   var bloqueadoPorVersionFutura = false;
 
+  /* E2: se activa si la migración 2 -> 3 no se pudo completar de forma
+     segura (error, validación, copia previa o guardado). Mientras esté
+     activo: load() no reintenta en esta sesión, save() rechaza todo y la app
+     muestra una pantalla de bloqueo en vez de arrancar con datos parciales.
+     El dato guardado sigue intacto en schema 2; recargar reintenta. */
+  var bloqueoMigracion = null;
+
+  function crearPlanV3(planId, origen) {
+    return {
+      plan_id: planId,
+      nombre: null,
+      fecha_inicio: null,
+      fecha_fin: null,
+      origen: origen,
+      version_de: null,
+      creado_en: null,
+      archivado_en: null,
+      fuente: null,
+      dias: []
+    };
+  }
+
+  /* Ejercicio en formato schema 3: conserva TODOS sus campos tal cual y
+     solo agrega los nuevos que falten (prescripción en null, eliminado en
+     false) y su orden. Usado por la migración y por las altas de GYMAPP.planes. */
+  function crearEjercicioV3(ejercicio, orden) {
+    var e = {};
+    Object.keys(ejercicio).forEach(function (k) { e[k] = ejercicio[k]; });
+    CAMPOS_PRESCRIPCION_V3.forEach(function (campo) {
+      if (!(campo in e)) e[campo] = null;
+    });
+    if (!("eliminado" in e)) e.eliminado = false;
+    e.orden = orden;
+    return e;
+  }
+
+  function crearDiaV3(dia, orden) {
+    var d = {};
+    Object.keys(dia).forEach(function (k) { d[k] = dia[k]; });
+    d.orden = orden;
+    d.ejercicios = (Array.isArray(dia.ejercicios) ? dia.ejercicios : []).map(function (e, i) {
+      return crearEjercicioV3(e, i + 1);
+    });
+    return d;
+  }
+
   function getDefaultData() {
     return {
       schema_version: VERSION_ESQUEMA_ACTUAL,
       usuario: null,
-      rutina: { dias: [] },
+      rutina: { plan_activo_id: PLAN_ID_VACIO, planes: [crearPlanV3(PLAN_ID_VACIO, "migracion")] },
       sesiones_entrenamiento: [],
       registros_nutricion: [],
       base_alimentos: [],
@@ -77,13 +139,139 @@ GYMAPP.storage = (function () {
       version = 2;
     }
 
+    if (version < 3) {
+      /* Migración 2 -> 3 (E2): rutina.dias pasa a ser el único plan,
+         activo, de rutina.planes. Determinística (sin fechas ni azar): dos
+         dispositivos con el mismo schema 2 producen el mismo schema 3.
+         Conserva todos los IDs y campos de días y ejercicios (solo agrega
+         orden y los campos nuevos en null). No toca sesiones ni ningún otro
+         dato. No crea planes históricos (eso es E3). */
+      var diasV2 = dataCruda.rutina && Array.isArray(dataCruda.rutina.dias) ? dataCruda.rutina.dias : [];
+      var planId = diasV2.length && diasV2[0] && diasV2[0].id ? "plan-mig-" + diasV2[0].id : PLAN_ID_VACIO;
+      var plan = crearPlanV3(planId, "migracion");
+      plan.dias = diasV2.map(function (dia, i) { return crearDiaV3(dia, i + 1); });
+      dataCruda.rutina = { plan_activo_id: planId, planes: [plan] };
+      dataCruda.schema_version = 3;
+      version = 3;
+    }
+
     /* Las próximas migraciones se agregan acá abajo, siguiendo el mismo patrón:
        if (version < N) { ...ajustar dataCruda...; dataCruda.schema_version = N; version = N; } */
 
     return dataCruda;
   }
 
+  function esIdValido(v) {
+    return (typeof v === "string" && v.length > 0) || typeof v === "number";
+  }
+
+  function esOrdenValido(v) {
+    return typeof v === "number" && Math.floor(v) === v && v >= 1;
+  }
+
+  /* Validación mínima pero estricta del formato schema 3. Devuelve null si
+     es válido o un texto con el primer problema encontrado. No valida en
+     detalle datos que schema 2 ya aceptaba (sesiones, nutrición, etc.). */
+  function validarDatosV3(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return "Los datos no son un objeto.";
+    if (data.schema_version !== 3) return "schema_version no es 3.";
+    var r = data.rutina;
+    if (!r || typeof r !== "object" || Array.isArray(r)) return "rutina no es un objeto.";
+    if (typeof r.plan_activo_id !== "string" || !r.plan_activo_id) return "plan_activo_id inválido.";
+    if (!Array.isArray(r.planes)) return "rutina.planes no es un array.";
+    var vistos = {};
+    var activos = 0;
+    for (var i = 0; i < r.planes.length; i++) {
+      var plan = r.planes[i];
+      if (!plan || typeof plan !== "object" || typeof plan.plan_id !== "string" || !plan.plan_id) return "Hay un plan sin plan_id.";
+      if (vistos[plan.plan_id]) return "plan_id repetido: " + plan.plan_id;
+      vistos[plan.plan_id] = true;
+      if (plan.plan_id === r.plan_activo_id) activos += 1;
+      if (!Array.isArray(plan.dias)) return "Un plan no tiene dias.";
+      for (var j = 0; j < plan.dias.length; j++) {
+        var dia = plan.dias[j];
+        if (!dia || typeof dia !== "object" || !esIdValido(dia.id)) return "Hay un día sin id.";
+        if (!esOrdenValido(dia.orden)) return "Hay un día con orden inválido.";
+        if (!Array.isArray(dia.ejercicios)) return "Hay un día sin ejercicios.";
+        for (var k = 0; k < dia.ejercicios.length; k++) {
+          var ej = dia.ejercicios[k];
+          if (!ej || typeof ej !== "object" || !esIdValido(ej.id)) return "Hay un ejercicio sin id.";
+          if (!esOrdenValido(ej.orden)) return "Hay un ejercicio con orden inválido.";
+        }
+      }
+    }
+    if (activos !== 1) return "No hay exactamente un plan activo.";
+    if (!Array.isArray(data.sesiones_entrenamiento)) return "sesiones_entrenamiento no es un array.";
+    return null;
+  }
+
+  /* Invariantes explícitas de la migración 2 -> 3: `original` es el dato
+     schema <= 2 tal cual estaba (sin tocar) y `migrado` el resultado. */
+  function verificarMigracionV3(original, migrado) {
+    var diasAntes = original && original.rutina && Array.isArray(original.rutina.dias) ? original.rutina.dias : [];
+    var planActivo = migrado.rutina.planes.filter(function (p) { return p.plan_id === migrado.rutina.plan_activo_id; })[0];
+    var diasDespues = planActivo.dias;
+    if (diasAntes.length !== diasDespues.length) return "Cambió la cantidad de días.";
+    for (var i = 0; i < diasAntes.length; i++) {
+      var a = diasAntes[i] || {};
+      var b = diasDespues[i];
+      if (a.id !== b.id || a.nombre !== b.nombre) return "Cambió un día (id o nombre).";
+      var ejA = Array.isArray(a.ejercicios) ? a.ejercicios : [];
+      if (ejA.length !== b.ejercicios.length) return "Cambió la cantidad de ejercicios de un día.";
+      for (var j = 0; j < ejA.length; j++) {
+        var conservado = Object.keys(ejA[j] || {}).every(function (k) {
+          return JSON.stringify(ejA[j][k]) === JSON.stringify(b.ejercicios[j][k]);
+        });
+        if (!conservado) return "Cambió un ejercicio.";
+      }
+    }
+    var sesionesAntes = original && Array.isArray(original.sesiones_entrenamiento) ? original.sesiones_entrenamiento : [];
+    if (JSON.stringify(sesionesAntes) !== JSON.stringify(migrado.sesiones_entrenamiento)) return "Cambiaron las sesiones.";
+    return null;
+  }
+
+  function bloquearPorMigracion(motivo, error) {
+    console.error("Migración a schema 3 cancelada: " + motivo, error || "");
+    bloqueoMigracion = { motivo: motivo, mensaje: MENSAJE_MIGRACION_FALLIDA };
+    return getDefaultData();
+  }
+
+  /* Migración 2 -> 3 resguardada: todo en memoria, validación, copia previa
+     del texto crudo y recién entonces el guardado. Si cualquier paso falla,
+     gymNutritionTracker queda como estaba (schema <= 2) y la app se bloquea. */
+  function migrarConResguardoV3(raw, dataCruda, versionOriginal) {
+    var original = JSON.parse(raw);
+    var migrada;
+    try {
+      migrada = Object.assign(getDefaultData(), migrarDatos(dataCruda));
+    } catch (e) {
+      return bloquearPorMigracion("error al migrar", e);
+    }
+
+    var error = validarDatosV3(migrada) || verificarMigracionV3(original, migrada);
+    if (error) return bloquearPorMigracion("validación: " + error);
+
+    try {
+      localStorage.setItem(CLAVE_PRE_MIGRACION_V3, JSON.stringify({
+        data_raw: raw,
+        version_origen: versionOriginal,
+        fecha: new Date().toISOString()
+      }));
+    } catch (e) {
+      return bloquearPorMigracion("no se pudo crear la copia previa", e);
+    }
+
+    /* setItem reemplaza el valor completo o falla sin escribir: si falla,
+       sigue el texto schema <= 2 anterior. */
+    if (!save(migrada, { alertaAutomatica: false })) {
+      return bloquearPorMigracion("no se pudo guardar el schema 3");
+    }
+    return migrada;
+  }
+
   function load() {
+    if (bloqueoMigracion) return getDefaultData();
+
     var raw;
     try {
       raw = localStorage.getItem(STORAGE_KEY);
@@ -119,6 +307,10 @@ GYMAPP.storage = (function () {
         window.alert(MENSAJE_VERSION_FUTURA);
       }
       return Object.assign(getDefaultData(), dataCruda);
+    }
+
+    if (versionOriginal < 3) {
+      return migrarConResguardoV3(raw, dataCruda, versionOriginal);
     }
 
     var dataMigrada;
@@ -165,6 +357,11 @@ GYMAPP.storage = (function () {
   function save(data, opciones) {
     var alertaAutomatica = !opciones || opciones.alertaAutomatica !== false;
 
+    if (bloqueoMigracion) {
+      console.error("Guardado bloqueado: la migración a schema 3 no se completó.");
+      return false;
+    }
+
     if (bloqueadoPorVersionFutura) {
       console.error("Guardado bloqueado: los datos locales son de una versión de esquema más nueva que la soportada.");
       if (alertaAutomatica) window.alert(MENSAJE_VERSION_FUTURA);
@@ -197,9 +394,19 @@ GYMAPP.storage = (function () {
     return { data: data, guardado: exito };
   }
 
+  /* null, o { motivo, mensaje } si la migración a schema 3 se bloqueó. */
+  function obtenerBloqueoMigracion() {
+    return bloqueoMigracion;
+  }
+
   return {
     getDefaultData: getDefaultData,
     migrarDatos: migrarDatos,
+    validarDatosV3: validarDatosV3,
+    verificarMigracionV3: verificarMigracionV3,
+    crearDiaV3: crearDiaV3,
+    crearEjercicioV3: crearEjercicioV3,
+    obtenerBloqueoMigracion: obtenerBloqueoMigracion,
     load: load,
     save: save,
     getData: getData,

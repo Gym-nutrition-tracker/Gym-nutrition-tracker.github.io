@@ -8,6 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
 const { datasetEntrenar } = require("../fixtures/entrenar-historial-dataset");
+const { aV3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const AHORA = "2026-10-20T12:00:00";
@@ -56,6 +57,8 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
   const r = [];
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });
   const original = datasetEntrenar();
+  /* E2: lo sembrado es schema 2; al abrir se migra una vez a schema 3. */
+  const migrado = aV3(original);
 
   try {
     const page = await abrir(browser, "http://127.0.0.1:" + srv.address().port, reg);
@@ -77,12 +80,17 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
       await pageBase.close();
       const distintas = tb.filter((b, i) => b.id !== t[i].id || b.fecha !== t[i].fecha || b.resumen !== t[i].resumen);
       check("misma cantidad, orden y fechas que la versión base", tb.length === t.length && tb.every((b, i) => b.id === t[i].id && b.fecha === t[i].fecha));
-      check("solo cambian las tarjetas 'Día ya no existe en la rutina'", distintas.length === 7 && distintas.every((b) => /Día ya no existe en la rutina/.test(b.resumen)), distintas);
+      if (tb.some((b) => /Día ya no existe en la rutina/.test(b.resumen))) {
+        check("solo cambian las tarjetas 'Día ya no existe en la rutina'", distintas.length === 7 && distintas.every((b) => /Día ya no existe en la rutina/.test(b.resumen)), distintas);
+      } else {
+        /* Base que ya resuelve los nombres (por ejemplo, HEAD): todo idéntico. */
+        check("todas las tarjetas idénticas a la base", distintas.length === 0, distintas);
+      }
       check("fútbol idéntico a la base", tb.filter((b) => b.id === "f-1710")[0].resumen === por["f-1710"].resumen, por["f-1710"]);
     }
 
-    const sinEscrituras = JSON.stringify(await leerStorage(page)) === JSON.stringify(original);
-    check("ver el historial no escribe localStorage", sinEscrituras);
+    const sinEscrituras = JSON.stringify(await leerStorage(page)) === JSON.stringify(migrado);
+    check("ver el historial no escribe localStorage (solo la migración 2→3)", sinEscrituras);
 
     /* Editar una sesión histórica (TRACCIÓN 15/10) y guardar. */
     await page.click('[data-accion="editar-sesion"][data-sesion-id="h-1510"]');
@@ -112,7 +120,7 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
     const trasBorrar = await leerStorage(page);
     check("eliminar: quita solo esa sesión", trasBorrar.sesiones_entrenamiento.length === original.sesiones_entrenamiento.length - 1 && !trasBorrar.sesiones_entrenamiento.some((s) => s.id === "x-desc"));
     check("eliminar: la tarjeta desaparece", !(await leerTarjetas(page)).some((x) => x.id === "x-desc"));
-    check("schema_version sigue en 2", trasBorrar.schema_version === 2);
+    check("schema_version 3 y rutina válida", trasBorrar.schema_version === 3 && trasBorrar.rutina.planes.length === 1 && !("dias" in trasBorrar.rutina));
 
     check("sin errores de consola", reg.errores.length === 0, reg.errores);
     check("sin requests a Supabase", reg.supabase.length === 0, reg.supabase);

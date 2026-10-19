@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
+const { aV3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const AHORA = "2026-11-09T12:00:00";
@@ -136,12 +137,12 @@ const puntosGrafico = (page) => page.evaluate(() => {
 
     const contextoL = await pageL.$eval(".progreso-estado-plan .estado-plan-contexto", (p) => p.textContent);
     check("Legacy: PROG-04 sigue en la rutina actual", /Inicio observado: 12\/10/.test(contextoL), contextoL);
-    check("Legacy: localStorage sin cambios", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === datosL);
+    check("Legacy: localStorage solo con la migración 2→3", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === JSON.stringify(aV3(JSON.parse(datosL))));
     await pageL.close();
 
     check("sin errores de consola", errores.length === 0, errores);
     check("sin requests a Supabase", supabase.length === 0, supabase);
-    check("localStorage sin cambios", (await page.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === datos);
+    check("localStorage solo con la migración 2→3", (await page.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === JSON.stringify(aV3(JSON.parse(datos))));
   } finally {
     await browser.close();
     srv.close();

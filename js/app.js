@@ -17,6 +17,19 @@ GYMAPP.app = (function () {
 
   function iniciar() {
     var data = GYMAPP.storage.getData();
+    /* E2: si la migración de formato no se pudo completar, no se arranca
+       con datos parciales: se muestra el aviso y nada más (save() también
+       queda bloqueado). Los datos guardados no se modificaron. */
+    var bloqueo = GYMAPP.storage.obtenerBloqueoMigracion();
+    if (bloqueo) {
+      root().innerHTML =
+        '<div class="pantalla">' +
+        "<h2>No se pudieron cargar tus datos</h2>" +
+        '<div class="mensaje error">' + GYMAPP.util.escapeHtml(bloqueo.mensaje) + "</div>" +
+        '<p class="nota">No se modificó nada. Recargá la app para volver a intentarlo. Si el problema sigue, no borres los datos del navegador.</p>' +
+        "</div>";
+      return;
+    }
     if (!data.usuario) {
       GYMAPP.onboarding.render(root());
       return;

@@ -216,8 +216,26 @@ async function esperar() {
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 }
 
+/* Convierte un dato schema <= 2 al schema actual usando la migración REAL
+   de js/storage.js (en un contexto aislado), sin pasar por localStorage.
+   Para fixtures que se entregan directo a funciones. Un schema futuro se
+   devuelve tal cual (la migración no lo toca). */
+let contextoMigracion = null;
+function aV3(datos) {
+  if (!contextoMigracion) {
+    contextoMigracion = { console: { log() {}, warn() {}, error() {} }, alert() {} };
+    contextoMigracion.window = contextoMigracion;
+    vm.createContext(contextoMigracion);
+    vm.runInContext(fs.readFileSync(path.join(RAIZ, "js/storage.js"), "utf8"), contextoMigracion);
+  }
+  const S = contextoMigracion.GYMAPP.storage;
+  return clonar(Object.assign(S.getDefaultData(), S.migrarDatos(clonar(datos))));
+}
+
+/* Dato de ejemplo en el schema actual (3). `extra` se aplica sobre la
+   versión schema 2 antes de migrar. */
 function datosEjemplo(extra) {
-  return Object.assign({
+  return aV3(Object.assign({
     schema_version: 2,
     usuario: { nombre: "Nico", actividades: [{ tipo: "gimnasio", meta_semanal: 5 }] },
     rutina: { dias: [{ id: "d1", nombre: "Día 1", ejercicios: [] }] },
@@ -225,7 +243,7 @@ function datosEjemplo(extra) {
     registros_nutricion: [],
     base_alimentos: [],
     medidas_corporales: []
-  }, extra || {});
+  }, extra || {}));
 }
 
-module.exports = { crearEntorno, crearContenedor, esperar, datosEjemplo, clonar };
+module.exports = { crearEntorno, crearContenedor, esperar, datosEjemplo, clonar, aV3 };

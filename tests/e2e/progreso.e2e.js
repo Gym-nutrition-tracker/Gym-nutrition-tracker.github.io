@@ -11,6 +11,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { aV3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const AHORA = "2026-11-09T12:00:00";
@@ -114,8 +115,12 @@ async function recorrer(browser, url) {
   html.rutina = await page.evaluate(() => document.getElementById("tab-content").innerHTML);
   const almacenado = await page.evaluate(() => localStorage.getItem("gymNutritionTracker"));
   const claves = await page.evaluate(() => Object.keys(localStorage).sort());
+  const pre = await page.evaluate(() => localStorage.getItem("gymNutritionTracker_preMigracionV3"));
   await page.close();
-  return { html, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios: almacenado === datos, claves };
+  /* E2: el dato sembrado es schema 2; al abrir la app se migra una sola vez a
+     schema 3 (con su copia previa) y después nada más lo modifica. */
+  const sinCambios = almacenado === JSON.stringify(aV3(JSON.parse(datos)));
+  return { html, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios, claves, preCrudo: pre ? JSON.parse(pre).data_raw === datos : false };
 }
 
 (async () => {
@@ -136,13 +141,18 @@ async function recorrer(browser, url) {
     check("aviso en PROG-03 (ejercicio)", nuevo.avisoEjercicio && /ejercicio/.test(nuevo.avisoEjercicio.titulo) && nuevo.avisoEjercicio.aviso.length === 1, nuevo.avisoEjercicio);
     check("sin errores de consola", nuevo.errores.length === 0, nuevo.errores);
     check("sin requests a Supabase", nuevo.pedidosSupabase.length === 0, nuevo.pedidosSupabase);
-    check("gymNutritionTracker sin cambios tras recorrer todo", nuevo.sinCambios);
-    check("sin claves nuevas en localStorage", JSON.stringify(nuevo.claves) === JSON.stringify(["gymNutritionTracker"]), nuevo.claves);
+    check("gymNutritionTracker: solo la migración 2→3, sin otros cambios tras recorrer todo", nuevo.sinCambios);
+    check("copia preMigracionV3 con el texto schema 2 exacto", nuevo.preCrudo);
+    check("sin otras claves en localStorage", JSON.stringify(nuevo.claves) === JSON.stringify(["gymNutritionTracker", "gymNutritionTracker_preMigracionV3"]), nuevo.claves);
     if (srvBase) {
       const base = await recorrer(browser, "http://127.0.0.1:" + srvBase.address().port);
       ["dashboard", "entrenar", "nutricion", "rutina"].forEach((t) => check("HTML idéntico a la versión base: " + t, nuevo.html[t] === base.html[t]));
-      check("Progreso idéntico a la base (sin panel ni aviso)", nuevo.progreso.sinPanel === base.html.progreso);
-      check("la base no tenía el panel", !base.progreso.existe);
+      if (base.progreso.existe) {
+        /* Base que ya tiene PROG-04 (por ejemplo, HEAD): Progreso completo idéntico. */
+        check("Progreso idéntico a la base (completo, con panel)", nuevo.html.progreso === base.html.progreso);
+      } else {
+        check("Progreso idéntico a la base (sin panel ni aviso)", nuevo.progreso.sinPanel === base.html.progreso);
+      }
       check("la base tampoco tiene errores de consola", base.errores.length === 0, base.errores);
     }
   } finally {

@@ -143,7 +143,7 @@ test("sin cambios en localStorage ni en schema_version", () => {
   P.calcularEstadoPlan(P.construirInputEstadoPlan(d, HOY));
   assert.equal(e.localStorage._escrituras.length, escrituras);
   assert.equal(e.localStorage.getItem(CLAVE), antes);
-  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
 });
 
 /* --- Compatibilidad legacy: nombres reales del plan anterior --- */
@@ -216,7 +216,7 @@ test("legacy: PROG-04 sigue ignorando los bloques históricos", () => {
   assert.deepEqual(clonar(rCon), clonar(rSin));
 });
 
-test("legacy: 0 escrituras, sesiones e IDs intactos, schema 2, sin sync", () => {
+test("legacy: 0 escrituras, sesiones e IDs intactos, schema 3, sin sync", () => {
   const data = datasetHistoricos({ legacy: true });
   const { e, P, d } = entorno(data);
   e.login();
@@ -229,8 +229,8 @@ test("legacy: 0 escrituras, sesiones e IDs intactos, schema 2, sin sync", () => 
   assert.equal(e.localStorage.getItem(CLAVE), antes);
   const guardado = JSON.parse(antes);
   LEGACY.forEach(([id]) => assert.ok(guardado.sesiones_entrenamiento.some((s) => s.dia_rutina_id === id), "conserva " + id));
-  assert.equal(guardado.schema_version, 2);
-  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
+  assert.equal(guardado.schema_version, 3);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
   assert.equal(e.nube.llamadas.length, 0);
   const leer = (f) => require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", f), "utf8");
   assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 59, "5 días + 54 ejercicios, solo en el mapa central");

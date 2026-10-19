@@ -40,21 +40,15 @@ GYMAPP.backupImport = (function () {
     return { ok: false, error: mensaje };
   }
 
-  /* Estructura mínima (antes y después de migrar). Solo verifica lo
-     imprescindible para que la app no se rompa; nunca corrige nada. */
+  /* Estructura mínima común a todas las versiones (antes y después de
+     migrar). Solo verifica lo imprescindible; nunca corrige nada. */
   function validarEstructura(datos) {
     if (datos.usuario !== null && !esObjeto(datos.usuario)) return "El usuario del backup no tiene un formato válido.";
-    if (!esObjeto(datos.rutina) || !Array.isArray(datos.rutina.dias)) return "La rutina del backup no tiene un formato válido.";
+    if (!esObjeto(datos.rutina)) return "La rutina del backup no tiene un formato válido.";
 
     for (var i = 0; i < COLECCIONES.length; i++) {
       if (!Array.isArray(datos[COLECCIONES[i]])) return MENSAJE_FORMATO;
     }
-
-    var diasValidos = datos.rutina.dias.every(function (dia) {
-      return esObjeto(dia) && esIdValido(dia.id) && Array.isArray(dia.ejercicios) &&
-        dia.ejercicios.every(function (ej) { return esObjeto(ej) && esIdValido(ej.id); });
-    });
-    if (!diasValidos) return "Hay días o ejercicios de la rutina sin un identificador válido.";
 
     var sesionesValidas = datos.sesiones_entrenamiento.every(function (s) {
       if (!esObjeto(s) || !esIdValido(s.id) || typeof s.fecha !== "string" || !s.fecha) return false;
@@ -65,6 +59,18 @@ GYMAPP.backupImport = (function () {
     });
     if (!sesionesValidas) return "Hay sesiones de entrenamiento con un formato inválido.";
 
+    return null;
+  }
+
+  /* Rutina de un backup schema 0/1/2 (rutina.dias), antes de migrarlo.
+     Es la única lectura de rutina.dias: el formato viejo de los archivos. */
+  function validarRutinaAnterior(datos) {
+    if (!Array.isArray(datos.rutina.dias)) return "La rutina del backup no tiene un formato válido.";
+    var diasValidos = datos.rutina.dias.every(function (dia) {
+      return esObjeto(dia) && esIdValido(dia.id) && Array.isArray(dia.ejercicios) &&
+        dia.ejercicios.every(function (ej) { return esObjeto(ej) && esIdValido(ej.id); });
+    });
+    if (!diasValidos) return "Hay días o ejercicios de la rutina sin un identificador válido.";
     return null;
   }
 
@@ -99,11 +105,12 @@ GYMAPP.backupImport = (function () {
       );
     }
 
-    var errorEntrada = validarEstructura(datos);
+    var errorEntrada = validarEstructura(datos) || (versionOrigen < 3 ? validarRutinaAnterior(datos) : null);
     if (errorEntrada) return fallo(errorEntrada);
 
     var cantidadSesiones = datos.sesiones_entrenamiento.length;
-    var cantidadDias = datos.rutina.dias.length;
+    /* Copia intacta para verificar las invariantes de la migración 2 -> 3. */
+    var original = JSON.parse(texto);
 
     /* `datos` es un objeto recién parseado (nadie más lo referencia), así
        que migrarlo en el lugar equivale a migrar una copia. */
@@ -124,7 +131,11 @@ GYMAPP.backupImport = (function () {
     }
     var errorResultado = validarEstructura(resultado);
     if (errorResultado) return fallo(errorResultado);
-    if (resultado.sesiones_entrenamiento.length !== cantidadSesiones || resultado.rutina.dias.length !== cantidadDias) {
+    if (GYMAPP.storage.validarDatosV3(resultado)) {
+      return fallo("La rutina del backup no tiene un formato válido.");
+    }
+    if (resultado.sesiones_entrenamiento.length !== cantidadSesiones ||
+        (versionOrigen < 3 && GYMAPP.storage.verificarMigracionV3(original, resultado))) {
       return fallo("La actualización del backup no conservó todos los datos. No se modificó nada.");
     }
 

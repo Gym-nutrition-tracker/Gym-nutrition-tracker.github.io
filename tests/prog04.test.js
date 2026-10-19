@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { crearEntorno, clonar } = require("./entorno");
+const { crearEntorno, clonar, aV3 } = require("./entorno");
 
 const CLAVE = "gymNutritionTracker";
 
@@ -65,7 +65,7 @@ function semanaProgresiva(i, rpeA, rpeB) {
 
 function evaluar(data, hoyISO) {
   const e = crearEntorno({ modulos: ["js/actividades.js", "js/progreso.js"] });
-  const input = e.GYMAPP.progreso.construirInputEstadoPlan(clonar(data), hoyISO);
+  const input = e.GYMAPP.progreso.construirInputEstadoPlan(aV3(data), hoyISO);
   return { e, input, r: e.GYMAPP.progreso.calcularEstadoPlan(input) };
 }
 
@@ -276,11 +276,11 @@ test("fechas deterministas con hoyISO y sin new Date() en la función pura", () 
   data.sesiones_entrenamiento.push(sesionGym("2026-11-01", "A", 7, { a1: series(25, [12, 12, 12, 12]) }, "23:30:00"));
   const e = crearEntorno({ modulos: ["js/progreso.js"] });
   const P = e.GYMAPP.progreso;
-  const input = P.construirInputEstadoPlan(clonar(data), "2026-11-02");
+  const input = P.construirInputEstadoPlan(aV3(data), "2026-11-02");
   assert.equal(input.semanas.filter((s) => s.semana === "2026-10-26")[0].sesiones, 3);
   assert.equal(input.semanas.filter((s) => s.semana === "2026-11-02")[0].sesiones, 0);
   assert.equal(input.semanaDeRegistros, 4);
-  assert.equal(P.construirInputEstadoPlan(clonar(data), "2026-11-09").semanaDeRegistros, 5);
+  assert.equal(P.construirInputEstadoPlan(aV3(data), "2026-11-09").semanaDeRegistros, 5);
 
   const RealDate = e.ctx.Date;
   e.ctx.Date = function () { throw new Error("new Date() no permitido en calcularEstadoPlan"); };
@@ -298,7 +298,7 @@ test("fechas deterministas con hoyISO y sin new Date() en la función pura", () 
 test("PROG-04 no escribe localStorage, no muta data ni cambia schema_version", () => {
   const data = escenario(LUNES, [0, 1, 2, 3].map((i) => semanaProgresiva(i, 7, 7)));
   const e = crearEntorno({ modulos: ["js/actividades.js", "js/progreso.js"] });
-  e.escribir(CLAVE, data);
+  e.escribir(CLAVE, aV3(data));
   const antes = e.localStorage.getItem(CLAVE);
   const datos = e.GYMAPP.storage.getData();
   const copia = JSON.stringify(datos);
@@ -308,8 +308,8 @@ test("PROG-04 no escribe localStorage, no muta data ni cambia schema_version", (
   assert.equal(e.localStorage._escrituras.length, escriturasAntes);
   assert.equal(e.localStorage.getItem(CLAVE), antes);
   assert.equal(JSON.stringify(datos), copia, "no muta data");
-  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
-  assert.equal(JSON.parse(e.localStorage.getItem(CLAVE)).schema_version, 2);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
+  assert.equal(JSON.parse(e.localStorage.getItem(CLAVE)).schema_version, 3);
 });
 
 /* 19 */
@@ -319,7 +319,7 @@ test("PROG-04 no toca sync ni la nube", () => {
   const data = escenario(LUNES, [0, 1, 2, 3].map((i) => semanaProgresiva(i, 7, 7)));
   const e = crearEntorno({ modulos: ["js/actividades.js", "js/progreso.js"] });
   e.login();
-  e.GYMAPP.progreso.calcularEstadoPlan(e.GYMAPP.progreso.construirInputEstadoPlan(data, "2026-11-09"));
+  e.GYMAPP.progreso.calcularEstadoPlan(e.GYMAPP.progreso.construirInputEstadoPlan(aV3(data), "2026-11-09"));
   assert.equal(e.nube.llamadas.length, 0);
 });
 

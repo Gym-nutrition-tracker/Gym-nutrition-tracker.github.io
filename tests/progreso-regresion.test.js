@@ -9,7 +9,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { crearEntorno, clonar } = require("./entorno");
+const { crearEntorno, clonar, aV3 } = require("./entorno");
 
 /* El snapshot guarda un hash por clave (no la salida completa) para no
    sumar megas al repo; el test indica qué clave difiere. */
@@ -66,7 +66,7 @@ function dataset() {
 function calcularSalidas() {
   const e = crearEntorno({ ahora: AHORA, modulos: ["js/actividades.js", "js/calculos.js", "js/progreso.js", "js/dashboard.js"] });
   const data = dataset();
-  e.escribir("gymNutritionTracker", data);
+  e.escribir("gymNutritionTracker", aV3(data));
   const G = e.GYMAPP;
   const P = G.progreso;
   const d = G.storage.getData();
@@ -123,7 +123,9 @@ function calcularSalidas() {
   }))))))));
   out.prog03 = clonar(prog03);
   guardar("parsearRango", () => ["10-12", "10 – 12", "10 a 12", "12", "10/10", "al fallo", "", null, "12-10"].map(P.parsearRangoReps));
-  guardar("ejRutina", () => [P.obtenerEjercicioDeRutina(d, "A", "a2"), P.obtenerEjercicioDeRutina(d, "VIEJO", "x1")]);
+  /* Solo los campos de schema 2: los de prescripción de schema 3 (null) no cambian el comportamiento. */
+  const camposV2 = (ej) => ej && { id: ej.id, nombre: ej.nombre, grupo_muscular: ej.grupo_muscular, series_objetivo: ej.series_objetivo, reps_objetivo: ej.reps_objetivo };
+  guardar("ejRutina", () => [P.obtenerEjercicioDeRutina(d, "A", "a2"), P.obtenerEjercicioDeRutina(d, "VIEJO", "x1")].map(camposV2));
 
   /* ACT */
   guardar("act", () => ({

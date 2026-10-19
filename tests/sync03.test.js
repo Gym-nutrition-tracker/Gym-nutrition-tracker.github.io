@@ -73,7 +73,7 @@ test("update exitoso: llama la RPC segura con expected_revision y actualiza sync
   const llamadas = rpcs(e, "actualizar_datos_usuario_seguro");
   assert.equal(llamadas.length, 1);
   assert.equal(llamadas[0].params.p_expected_revision, 4);
-  assert.equal(llamadas[0].params.p_schema_version, 2);
+  assert.equal(llamadas[0].params.p_schema_version, 3);
   assert.ok(!("user_id" in llamadas[0].params) && !("user_id" in llamadas[0].params.p_data), "nunca manda user_id");
   assert.deepEqual(llamadas[0].params.p_data, clonar(e.GYMAPP.storage.getData()));
   assert.equal(e.nube.fila.revision, 5);

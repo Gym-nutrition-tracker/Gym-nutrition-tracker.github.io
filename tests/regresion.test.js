@@ -12,21 +12,23 @@ const rpcs = (e) => e.nube.llamadas.filter((l) => l.tipo === "rpc");
 
 /* --- storage --- */
 
-test("storage: sin datos devuelve el estado por defecto (schema 2)", () => {
+test("storage: sin datos devuelve el estado por defecto (schema 3)", () => {
   const e = crearEntorno({ sinSync: true });
   const d = e.GYMAPP.storage.getData();
-  assert.equal(d.schema_version, 2);
+  assert.equal(d.schema_version, 3);
   assert.equal(d.usuario, null);
-  assert.deepEqual(clonar(d.rutina), { dias: [] });
+  assert.deepEqual(clonar(d.rutina), { plan_activo_id: "plan-mig-vacio", planes: [{
+    plan_id: "plan-mig-vacio", nombre: null, fecha_inicio: null, fecha_fin: null, origen: "migracion",
+    version_de: null, creado_en: null, archivado_en: null, fuente: null, dias: [] }] });
 });
 
-test("storage: migra 0 -> 2 agregando actividades y persiste", () => {
+test("storage: migra 0 -> 3 agregando actividades y persiste", () => {
   const e = crearEntorno({ sinSync: true });
   e.escribir(CLAVE, { usuario: { nombre: "N" }, rutina: { dias: [] } });
   const d = e.GYMAPP.storage.getData();
-  assert.equal(d.schema_version, 2);
+  assert.equal(d.schema_version, 3);
   assert.deepEqual(clonar(d.usuario.actividades), [{ tipo: "gimnasio", meta_semanal: 5 }, { tipo: "futbol", meta_semanal: 2 }]);
-  assert.equal(e.leer(CLAVE).schema_version, 2);
+  assert.equal(e.leer(CLAVE).schema_version, 3);
 });
 
 test("storage: schema futuro bloquea save()", () => {
@@ -172,7 +174,7 @@ test("SYNC-02: payload remoto de schema viejo se migra antes de guardar", async 
   e.respuestas.confirm.push(true);
   c.click("recuperar-de-la-nube"); await esperar();
   const d = e.leer(CLAVE);
-  assert.equal(d.schema_version, 2);
+  assert.equal(d.schema_version, 3);
   assert.equal(d.usuario.actividades.length, 2);
   assert.deepEqual(d.sesiones_entrenamiento, []);
 });
