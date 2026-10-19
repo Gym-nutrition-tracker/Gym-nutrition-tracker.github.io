@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
 const { datasetEntrenar } = require("../fixtures/entrenar-historial-dataset");
-const { aV3 } = require("../entorno");
+const { aE3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const AHORA = "2026-10-20T12:00:00";
@@ -57,8 +57,9 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
   const r = [];
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });
   const original = datasetEntrenar();
-  /* E2: lo sembrado es schema 2; al abrir se migra una vez a schema 3. */
-  const migrado = aV3(original);
+  /* Lo sembrado es schema 2; al abrir se migra una vez a schema 3 y, como
+     tiene sesiones del plan anterior, se persiste el plan legacy (E3). */
+  const migrado = aE3(original);
 
   try {
     const page = await abrir(browser, "http://127.0.0.1:" + srv.address().port, reg);
@@ -90,7 +91,7 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
     }
 
     const sinEscrituras = JSON.stringify(await leerStorage(page)) === JSON.stringify(migrado);
-    check("ver el historial no escribe localStorage (solo la migración 2→3)", sinEscrituras);
+    check("ver el historial no escribe localStorage (solo la migración 2→3 + E3)", sinEscrituras);
 
     /* Editar una sesión histórica (TRACCIÓN 15/10) y guardar. */
     await page.click('[data-accion="editar-sesion"][data-sesion-id="h-1510"]');
@@ -120,7 +121,7 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
     const trasBorrar = await leerStorage(page);
     check("eliminar: quita solo esa sesión", trasBorrar.sesiones_entrenamiento.length === original.sesiones_entrenamiento.length - 1 && !trasBorrar.sesiones_entrenamiento.some((s) => s.id === "x-desc"));
     check("eliminar: la tarjeta desaparece", !(await leerTarjetas(page)).some((x) => x.id === "x-desc"));
-    check("schema_version 3 y rutina válida", trasBorrar.schema_version === 3 && trasBorrar.rutina.planes.length === 1 && !("dias" in trasBorrar.rutina));
+    check("schema_version 3 y rutina válida", trasBorrar.schema_version === 3 && trasBorrar.rutina.planes.length === 2 && trasBorrar.rutina.planes[0].plan_id === "plan-hist-mu4c87ep730qj1" && !("dias" in trasBorrar.rutina));
 
     check("sin errores de consola", reg.errores.length === 0, reg.errores);
     check("sin requests a Supabase", reg.supabase.length === 0, reg.supabase);

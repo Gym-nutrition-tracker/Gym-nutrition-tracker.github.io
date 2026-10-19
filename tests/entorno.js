@@ -174,6 +174,7 @@ function crearEntorno(opciones) {
   };
   cargar("js/util.js");
   cargar("js/storage.js");
+  cargar("js/planLegacy.js");
   cargar("js/planes.js");
   cargar("js/rutinasHistoricas.js");
 
@@ -232,6 +233,24 @@ function aV3(datos) {
   return clonar(Object.assign(S.getDefaultData(), S.migrarDatos(clonar(datos))));
 }
 
+/* aV3 + backfills de schema 3 (E3: plan legacy), con storage.js y
+   planLegacy.js reales en un contexto aislado. Es lo que guarda la app al
+   cargar un dato schema <= 3. */
+let contextoE3 = null;
+function aE3(datos) {
+  if (!contextoE3) {
+    contextoE3 = { console: { log() {}, warn() {}, error() {} }, alert() {} };
+    contextoE3.window = contextoE3;
+    vm.createContext(contextoE3);
+    ["js/storage.js", "js/planLegacy.js"].forEach((f) => vm.runInContext(fs.readFileSync(path.join(RAIZ, f), "utf8"), contextoE3));
+  }
+  const S = contextoE3.GYMAPP.storage;
+  const v3 = Object.assign(S.getDefaultData(), S.migrarDatos(clonar(datos)));
+  const r = S.aplicarBackfillsV3(v3);
+  if (r.error) throw new Error(r.error);
+  return clonar(r.datos);
+}
+
 /* Dato de ejemplo en el schema actual (3). `extra` se aplica sobre la
    versión schema 2 antes de migrar. */
 function datosEjemplo(extra) {
@@ -246,4 +265,4 @@ function datosEjemplo(extra) {
   }, extra || {}));
 }
 
-module.exports = { crearEntorno, crearContenedor, esperar, datosEjemplo, clonar, aV3 };
+module.exports = { crearEntorno, crearContenedor, esperar, datosEjemplo, clonar, aV3, aE3 };

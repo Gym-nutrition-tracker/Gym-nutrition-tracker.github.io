@@ -56,6 +56,50 @@ GYMAPP.planes = (function () {
     return (dia.ejercicios || []).filter(function (e) { return e.id === ejercicioId; })[0] || null;
   }
 
+  /* --- Lectura sobre TODOS los planes (E3) ---
+     Para resolver IDs históricos (por ejemplo, el plan legacy). Recorren
+     rutina.planes en su orden; el plan activo sigue siendo el único
+     editable y el único que usan Entrenar, Dashboard y PROG-04. */
+
+  function planesValidos(data) {
+    var rutina = data && data.rutina;
+    if (!rutina || !Array.isArray(rutina.planes)) return [];
+    return rutina.planes.filter(function (p) { return p && Array.isArray(p.dias); });
+  }
+
+  /* { plan, dia } del primer plan que tiene ese día, o null. */
+  function buscarDiaEnPlanes(data, diaId) {
+    var planes = planesValidos(data);
+    for (var i = 0; i < planes.length; i++) {
+      var dia = planes[i].dias.filter(function (d) { return d && d.id === diaId; })[0];
+      if (dia) return { plan: planes[i], dia: dia };
+    }
+    return null;
+  }
+
+  /* { plan, dia, ejercicio } del primer plan/día que tiene ese ejercicio. */
+  function buscarEjercicioEnPlanes(data, ejercicioId) {
+    var planes = planesValidos(data);
+    for (var i = 0; i < planes.length; i++) {
+      for (var j = 0; j < planes[i].dias.length; j++) {
+        var dia = planes[i].dias[j];
+        var ejercicio = (dia && dia.ejercicios || []).filter(function (e) { return e && e.id === ejercicioId; })[0];
+        if (ejercicio) return { plan: planes[i], dia: dia, ejercicio: ejercicio };
+      }
+    }
+    return null;
+  }
+
+  function buscarEjercicioEnPlan(data, planId, ejercicioId) {
+    var plan = buscarPlan(data, planId);
+    if (!plan || !Array.isArray(plan.dias)) return null;
+    for (var j = 0; j < plan.dias.length; j++) {
+      var ejercicio = (plan.dias[j] && plan.dias[j].ejercicios || []).filter(function (e) { return e && e.id === ejercicioId; })[0];
+      if (ejercicio) return ejercicio;
+    }
+    return null;
+  }
+
   /* --- Mutación (solo dentro de storage.updateData) --- */
 
   function exigirPlanActivo(data) {
@@ -108,6 +152,9 @@ GYMAPP.planes = (function () {
     buscarDiaActivo: buscarDiaActivo,
     buscarEjercicioActivo: buscarEjercicioActivo,
     buscarEjercicioEnDiaActivo: buscarEjercicioEnDiaActivo,
+    buscarDiaEnPlanes: buscarDiaEnPlanes,
+    buscarEjercicioEnPlanes: buscarEjercicioEnPlanes,
+    buscarEjercicioEnPlan: buscarEjercicioEnPlan,
     agregarDiaAlPlanActivo: agregarDiaAlPlanActivo,
     eliminarDiaDelPlanActivo: eliminarDiaDelPlanActivo,
     agregarEjercicioADiaActivo: agregarEjercicioADiaActivo,

@@ -139,6 +139,21 @@ GYMAPP.backupImport = (function () {
       return fallo("La actualización del backup no conservó todos los datos. No se modificó nada.");
     }
 
+    /* E3: mismo backfill que storage.load() (plan legacy si el backup tiene
+       sesiones de ese plan y todavía no lo incluye). Idempotente: un backup
+       que ya lo tiene queda igual. */
+    var backfill;
+    try {
+      backfill = GYMAPP.storage.aplicarBackfillsV3(resultado);
+    } catch (e) {
+      console.error("No se pudo completar el backup", e);
+      return fallo("No se pudo actualizar el formato del backup. Tus datos actuales no se modificaron.");
+    }
+    if (backfill.error) {
+      return fallo("La actualización del backup no conservó todos los datos. No se modificó nada.");
+    }
+    resultado = backfill.datos;
+
     return { ok: true, datos: resultado, versionOrigen: versionOrigen, versionDestino: versionSoportada };
   }
 

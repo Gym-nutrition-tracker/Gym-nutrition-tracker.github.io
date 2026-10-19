@@ -103,8 +103,8 @@ test("Progreso sigue resolviendo los históricos igual que antes", () => {
   assert.equal(P.resolverNombreBloqueHistorico(d, "id-historico-desconocido"), null);
 });
 
-test("el mapa legacy existe en un único archivo", () => {
+test("el plan legacy existe en un único archivo", () => {
   const dir = path.join(__dirname, "..", "js");
   const conIds = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && /mu4c87/.test(fs.readFileSync(path.join(dir, f), "utf8")));
-  assert.deepEqual(conIds, ["rutinasHistoricas.js"]);
+  assert.deepEqual(conIds, ["planLegacy.js"]);
 });

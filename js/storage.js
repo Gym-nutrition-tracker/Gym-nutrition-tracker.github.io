@@ -22,6 +22,11 @@ GYMAPP.storage = (function () {
   /* Campos de prescripción de schema 3 que en E2 siempre nacen en null. */
   var CAMPOS_PRESCRIPCION_V3 = ["rir_objetivo", "rpe_objetivo", "peso_objetivo", "pausa", "comentarios", "raw"];
 
+  /* E3: copia del texto crudo schema 3 previo al backfill del plan legacy.
+     Se escribe una sola vez (si ya existe, se conserva la primera) y nunca
+     se borra automáticamente. */
+  var CLAVE_PRE_E3 = "gymNutritionTracker_preE3LegacyBackfill";
+
   var MENSAJE_MIGRACION_FALLIDA = "No se pudo actualizar el formato de tus datos. Tus datos anteriores se conservaron.";
 
   var MENSAJE_ERROR_GUARDADO = (
@@ -47,6 +52,12 @@ GYMAPP.storage = (function () {
      muestra una pantalla de bloqueo en vez de arrancar con datos parciales.
      El dato guardado sigue intacto en schema 2; recargar reintenta. */
   var bloqueoMigracion = null;
+
+  /* E3: si el backfill del plan legacy no se pudo persistir de forma segura,
+     no se reintenta en esta sesión y la app sigue con los datos anteriores
+     (los nombres históricos siguen saliendo del dataset legacy). Recargar
+     reintenta. */
+  var backfillE3Fallido = null;
 
   function crearPlanV3(planId, origen) {
     return {
@@ -230,6 +241,57 @@ GYMAPP.storage = (function () {
     return null;
   }
 
+  /* Backfills de schema 3 (E3): ajustes idempotentes que NO dependen de
+     schema_version (el usuario ya está en 3). Trabaja sobre una copia: nunca
+     muta `data`. Devuelve { datos, cambio, error }: si no hay nada que hacer,
+     datos === data y cambio false. Hoy: plan legacy (js/planLegacy.js). */
+  function aplicarBackfillsV3(data) {
+    var legacy = GYMAPP.planLegacy;
+    if (!legacy || !legacy.necesitaPlanLegacy(data)) return { datos: data, cambio: false, error: null };
+    var copia = JSON.parse(JSON.stringify(data));
+    legacy.agregarPlanLegacy(copia);
+    var error = validarDatosV3(copia) || legacy.verificarBackfillLegacy(data, copia);
+    return { datos: copia, cambio: true, error: error };
+  }
+
+  function fallarBackfillE3(motivo, error) {
+    console.error("Backfill E3 (plan legacy) cancelado: " + motivo + ". Se siguen usando los datos anteriores.", error || "");
+    backfillE3Fallido = { motivo: motivo };
+  }
+
+  /* Backfill resguardado sobre un schema 3 ya guardado: en memoria,
+     validación, copia previa del texto crudo y recién entonces el guardado.
+     Si algo falla, devuelve `data` sin cambios y gymNutritionTracker queda
+     como estaba. Sin cambios que hacer: 0 escrituras. */
+  function aplicarBackfillConResguardo(raw, data) {
+    if (backfillE3Fallido) return data;
+    var r;
+    try {
+      r = aplicarBackfillsV3(data);
+    } catch (e) {
+      fallarBackfillE3("error al aplicar", e);
+      return data;
+    }
+    if (!r.cambio) return data;
+    if (r.error) {
+      fallarBackfillE3("validación: " + r.error);
+      return data;
+    }
+    try {
+      if (localStorage.getItem(CLAVE_PRE_E3) === null) {
+        localStorage.setItem(CLAVE_PRE_E3, JSON.stringify({ data_raw: raw, fecha: new Date().toISOString() }));
+      }
+    } catch (e) {
+      fallarBackfillE3("no se pudo crear la copia previa", e);
+      return data;
+    }
+    if (!save(r.datos, { alertaAutomatica: false })) {
+      fallarBackfillE3("no se pudo guardar");
+      return data;
+    }
+    return r.datos;
+  }
+
   function bloquearPorMigracion(motivo, error) {
     console.error("Migración a schema 3 cancelada: " + motivo, error || "");
     bloqueoMigracion = { motivo: motivo, mensaje: MENSAJE_MIGRACION_FALLIDA };
@@ -250,6 +312,17 @@ GYMAPP.storage = (function () {
 
     var error = validarDatosV3(migrada) || verificarMigracionV3(original, migrada);
     if (error) return bloquearPorMigracion("validación: " + error);
+
+    /* E3 en el mismo paso: el resultado es idéntico al de migrar a 3 y
+       después hacer el backfill. La copia previa es la de schema 2. */
+    var backfill;
+    try {
+      backfill = aplicarBackfillsV3(migrada);
+    } catch (e) {
+      return bloquearPorMigracion("error en el backfill E3", e);
+    }
+    if (backfill.error) return bloquearPorMigracion("validación E3: " + backfill.error);
+    migrada = backfill.datos;
 
     try {
       localStorage.setItem(CLAVE_PRE_MIGRACION_V3, JSON.stringify({
@@ -342,7 +415,7 @@ GYMAPP.storage = (function () {
       save(dataCompleta);
     }
 
-    return dataCompleta;
+    return aplicarBackfillConResguardo(raw, dataCompleta);
   }
 
   /*
@@ -399,8 +472,15 @@ GYMAPP.storage = (function () {
     return bloqueoMigracion;
   }
 
+  /* null, o { motivo } si el backfill E3 no se pudo persistir. */
+  function obtenerFalloBackfillE3() {
+    return backfillE3Fallido;
+  }
+
   return {
     getDefaultData: getDefaultData,
+    aplicarBackfillsV3: aplicarBackfillsV3,
+    obtenerFalloBackfillE3: obtenerFalloBackfillE3,
     migrarDatos: migrarDatos,
     validarDatosV3: validarDatosV3,
     verificarMigracionV3: verificarMigracionV3,

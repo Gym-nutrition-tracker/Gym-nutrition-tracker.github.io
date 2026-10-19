@@ -1,0 +1,413 @@
+{
+ "_origen": "Datos del plan anterior tal cual el backup JSON original (verificados por el usuario): id, nombre, día, orden, grupo_muscular, series_objetivo y reps_objetivo.",
+ "bloques": [
+  {
+   "id": "mu4c87ep730qj1",
+   "nombre": "EMPUJE",
+   "ejercicios": [
+    {
+     "id": "mu4c87epbg96ws",
+     "nombre": "MOVILIDAD DE HOMBRO CON SOGA / BANDA",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ept9zor6",
+     "nombre": "MANGUITO ROTADOR CON BANDA (NIVEL 2)",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epymia1f",
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epoowggf",
+     "nombre": "FLEXIONES DE BRAZO EN CAJON BAJO O STEP",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 2,
+     "reps_objetivo": "10/10"
+    },
+    {
+     "id": "mu4c87epsr80xw",
+     "nombre": "PRESS BANCA C/BARRA",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8"
+    },
+    {
+     "id": "mu4c87epqc4fa9",
+     "nombre": "PRESS INCLINADO EN SMITH",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 4,
+     "reps_objetivo": "8-10"
+    },
+    {
+     "id": "mu4c87epra2lxd",
+     "nombre": "MARIPOSA",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 3,
+     "reps_objetivo": "12-15"
+    },
+    {
+     "id": "mu4c87ep3aktdt",
+     "nombre": "PRESS MILITAR C/MANCUERNAS SENTADO",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 3,
+     "reps_objetivo": "8-12"
+    },
+    {
+     "id": "mu4c87epb3rmfc",
+     "nombre": "PRESS FRANCES C/BARRA",
+     "grupo_muscular": "Tríceps",
+     "series_objetivo": 4,
+     "reps_objetivo": "8-10"
+    },
+    {
+     "id": "mu4c87epfzs2x1",
+     "nombre": "TRICEPS A UN BRAZO TOMANDO CODO",
+     "grupo_muscular": "Tríceps",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    },
+    {
+     "id": "mu4c87eprlf0dw",
+     "nombre": "DEAD BUG EXTIENDO PIES Y BRAZOS CON PESO",
+     "grupo_muscular": "Core",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87epql8xft",
+     "nombre": "LANZAMIENTO DE PELOTA LATERAL",
+     "grupo_muscular": "Core",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    }
+   ]
+  },
+  {
+   "id": "mu4c87ep241kdy",
+   "nombre": "PIERNAS (ENFOQUE EN CUADRICEPS)",
+   "ejercicios": [
+    {
+     "id": "mu4c87epb85qpz",
+     "nombre": "MOVILIDAD DE CADERA 90/90 COMPLETA",
+     "grupo_muscular": "Core",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epykfu38",
+     "nombre": "BUDA + DORSIFLEXION DE TOBILLO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epweavgf",
+     "nombre": "MOVILIDAD CADERA + ESTIRO ADUCTOR EN SUELO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep87iw35",
+     "nombre": "DE ARRODILLADO A PARADO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "15-30"
+    },
+    {
+     "id": "mu4c87ep038sy5",
+     "nombre": "SENTADILLA SMITH",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8"
+    },
+    {
+     "id": "mu4c87ep8e0jqr",
+     "nombre": "ESTOCADA BULGARA C/MANCUERNA",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87ep8xs800",
+     "nombre": "HIP THRUST CON BARRA",
+     "grupo_muscular": "Glúteo",
+     "series_objetivo": 4,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep4n43li",
+     "nombre": "SENTADILLA SUMO CON KB",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87ep69us8o",
+     "nombre": "SILLON DE CUADRICEPS",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    },
+    {
+     "id": "mu4c87epo1bdnp",
+     "nombre": "GEMELOS EN PRENSA HACK",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-15"
+    }
+   ]
+  },
+  {
+   "id": "mu4c87ep2snsau",
+   "nombre": "TRACCIÓN",
+   "ejercicios": [
+    {
+     "id": "mu4c87epeyfdj5",
+     "nombre": "ADUCCION ESCAPULAR C/BANDA",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep3do44n",
+     "nombre": "BUDA + TRACCIONES C/BANDA",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epn2cxo3",
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epgu3z75",
+     "nombre": "DOMINADAS AUSTRALIANAS",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 2,
+     "reps_objetivo": "8-12"
+    },
+    {
+     "id": "mu4c87epd9q159",
+     "nombre": "DOMINADAS TOMA NEUTRA",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8"
+    },
+    {
+     "id": "mu4c87ep8spsdp",
+     "nombre": "REMO T CON BARRA",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 4,
+     "reps_objetivo": "10"
+    },
+    {
+     "id": "mu4c87ep58zem5",
+     "nombre": "REMO CON MANCUERNA A 1 BRAZO",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87ep0qemzm",
+     "nombre": "VUELOS LATERALES C/ KETBELL",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 4,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep3ubm4o",
+     "nombre": "CURL BICEPS C/BARRA BANCO SCOTT",
+     "grupo_muscular": "Bíceps",
+     "series_objetivo": 4,
+     "reps_objetivo": "8-10"
+    },
+    {
+     "id": "mu4c87ep0eby47",
+     "nombre": "BICEPS MARTILLO EN POLEA",
+     "grupo_muscular": "Bíceps",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    },
+    {
+     "id": "mu4c87ep7ktd1j",
+     "nombre": "SIT UPS",
+     "grupo_muscular": "Core",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87epxgpjgh",
+     "nombre": "ELEVACIONES DE PIERNAS SOBRE MANCUERNA",
+     "grupo_muscular": "Core",
+     "series_objetivo": 3,
+     "reps_objetivo": "12/12"
+    }
+   ]
+  },
+  {
+   "id": "mu4c87epiiepiq",
+   "nombre": "PIERNAS (ENFOQUE EN ISQUIOS)",
+   "ejercicios": [
+    {
+     "id": "mu4c87ep2a0odw",
+     "nombre": "MOVILIDAD DE CADERA 90/90 COMPLETA",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87eplnvqe9",
+     "nombre": "CUA+ PSOAS + ISQUIO DESDE ESTOCADA EN SUELO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep0qejns",
+     "nombre": "ROTACIÓN DE TRONCO Y CADERA DESDE POSICIÓN PRONA ( ALACRAN)",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87ep9sfk61",
+     "nombre": "DE ARRODILLADO A PARADO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 2,
+     "reps_objetivo": "15-30"
+    },
+    {
+     "id": "mu4c87eptl7g4e",
+     "nombre": "PESO MUERTO RUMANO EN SMITH",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8"
+    },
+    {
+     "id": "mu4c87epqbyg9x",
+     "nombre": "PRENSA 45º",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87ephy6m59",
+     "nombre": "CURL FEMORAL ACOSTADO",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87epnlj2w1",
+     "nombre": "SWING C/KETTLEBELL",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-14"
+    },
+    {
+     "id": "mu4c87ep5bebig",
+     "nombre": "SUBIDAS AL BANCO C/KETBELLS",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "12/12"
+    },
+    {
+     "id": "mu4c87epaaxezk",
+     "nombre": "GEMELOS/SOLEO EN MAQUINA",
+     "grupo_muscular": "Pierna",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-15"
+    }
+   ]
+  },
+  {
+   "id": "mu4c87eptjrn47",
+   "nombre": "TREN SUPERIOR",
+   "ejercicios": [
+    {
+     "id": "mu4c87epga0kg0",
+     "nombre": "MANGUITO ROTADOR CON BANDA (NIVEL 2)",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87eps3rrhu",
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epl1orvw",
+     "nombre": "ROTACIONES DE HOMBRO CON BANDA",
+     "grupo_muscular": "Hombro",
+     "series_objetivo": 2,
+     "reps_objetivo": "8"
+    },
+    {
+     "id": "mu4c87epv7k03i",
+     "nombre": "HALO SOBRE 1 PIERNA",
+     "grupo_muscular": "Core",
+     "series_objetivo": 2,
+     "reps_objetivo": "12/12"
+    },
+    {
+     "id": "mu4c87epjry3ek",
+     "nombre": "PRESS BANCA C/MANCUERNAS",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87epijpm86",
+     "nombre": "MARIPOSA",
+     "grupo_muscular": "Pecho",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10"
+    },
+    {
+     "id": "mu4c87epbm1w7y",
+     "nombre": "POLEA DORSAL AL PECHO TOMA AMPLIA",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87epm1j832",
+     "nombre": "REMO BAJO POLEA TOMA SUPINA",
+     "grupo_muscular": "Espalda",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12"
+    },
+    {
+     "id": "mu4c87ep49fuyl",
+     "nombre": "BICEPS C/BARRA PLANA",
+     "grupo_muscular": "Bíceps",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    },
+    {
+     "id": "mu4c87ep94uybp",
+     "nombre": "TRICEPS TRASNUCA C/BARRA",
+     "grupo_muscular": "Tríceps",
+     "series_objetivo": 3,
+     "reps_objetivo": "12"
+    }
+   ]
+  }
+ ]
+}

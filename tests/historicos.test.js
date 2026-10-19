@@ -233,7 +233,8 @@ test("legacy: 0 escrituras, sesiones e IDs intactos, schema 3, sin sync", () => 
   assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 3);
   assert.equal(e.nube.llamadas.length, 0);
   const leer = (f) => require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", f), "utf8");
-  assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 59, "5 días + 54 ejercicios, solo en el mapa central");
+  assert.equal((leer("planLegacy.js").match(/mu4c87/g) || []).length, 59 + 1, "5 días + 54 ejercicios (+ el plan_id derivado), solo en la fuente central");
+  assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 0);
   assert.equal((leer("progreso.js").match(/mu4c87/g) || []).length, 0);
   assert.equal((leer("entrenamiento.js").match(/mu4c87/g) || []).length, 0);
 });

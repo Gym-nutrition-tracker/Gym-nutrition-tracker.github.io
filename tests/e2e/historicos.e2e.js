@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
-const { aV3 } = require("../entorno");
+const { aV3, aE3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const AHORA = "2026-11-09T12:00:00";
@@ -137,7 +137,9 @@ const puntosGrafico = (page) => page.evaluate(() => {
 
     const contextoL = await pageL.$eval(".progreso-estado-plan .estado-plan-contexto", (p) => p.textContent);
     check("Legacy: PROG-04 sigue en la rutina actual", /Inicio observado: 12\/10/.test(contextoL), contextoL);
-    check("Legacy: localStorage solo con la migración 2→3", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === JSON.stringify(aV3(JSON.parse(datosL))));
+    check("Legacy: localStorage solo con la migración 2→3 + plan legacy (E3)", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === JSON.stringify(aE3(JSON.parse(datosL))));
+    const planesL = await pageL.evaluate(() => JSON.parse(localStorage.getItem("gymNutritionTracker")).rutina.planes.map((p) => p.plan_id));
+    check("Legacy: plan legacy persistido antes del plan activo", planesL.length === 2 && planesL[0] === "plan-hist-mu4c87ep730qj1", planesL);
     await pageL.close();
 
     check("sin errores de consola", errores.length === 0, errores);

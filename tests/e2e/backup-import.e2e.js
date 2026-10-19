@@ -4,7 +4,8 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
-const { aV3 } = require("../entorno");
+const { aV3, aE3 } = require("../entorno");
+const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 
 const RAIZ = path.join(__dirname, "..", "..");
 const TIPOS = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png" };
@@ -93,6 +94,20 @@ const estado = (page) => page.evaluate(() => ({
     check("schema 3: guardado tal cual", st.datos === JSON.stringify(b3), JSON.parse(st.datos).rutina);
     check("schema 3: sin aviso de actualización de formato", !regV3.dialogos.some((d) => /versión anterior/.test(d)), regV3.dialogos);
     reg.errores.push(...regV3.errores);
+    await page.close();
+
+    /* 1c. Backup schema 2 con sesiones del plan anterior: migra a 3 y
+       persiste el plan legacy (E3), sin tocar sesiones. */
+    const regL = { errores: [], supabase: [], dialogos: [] };
+    page = await abrir(browser, url, regL, true);
+    const bL = datasetHistoricos({ legacy: true });
+    await Promise.all([page.waitForEvent("load"), subir(page, "legacy.json", JSON.stringify(bL))]);
+    st = await estado(page);
+    const dL = JSON.parse(st.datos);
+    check("legacy: guardado = schema 3 + plan legacy", st.datos === JSON.stringify(aE3(bL)));
+    check("legacy: plan legacy antes del activo, activo intacto", dL.rutina.planes.map((p) => p.plan_id).join() === "plan-hist-mu4c87ep730qj1,plan-mig-D1" && dL.rutina.plan_activo_id === "plan-mig-D1");
+    check("legacy: sesiones idénticas", JSON.stringify(dL.sesiones_entrenamiento) === JSON.stringify(bL.sesiones_entrenamiento));
+    reg.errores.push(...regL.errores);
     await page.close();
 
     /* 2. Rechazos: schema 4, JSON inválido, estructura inválida. Sin escrituras. */

@@ -189,8 +189,7 @@ test("recargar después de una falla transitoria reintenta y migra bien", () => 
 /* --- Históricos y PROG-04 tras migrar --- */
 
 test("después de migrar, los 5 bloques y 54 ejercicios legacy siguen resolviendo su nombre", () => {
-  const fuente = fs.readFileSync(path.join(__dirname, "..", "js", "rutinasHistoricas.js"), "utf8");
-  const ids = [...new Set(fuente.match(/mu4c87[a-z0-9]+/g))];
+  const ids = [...new Set(fs.readFileSync(path.join(__dirname, "..", "js", "planLegacy.js"), "utf8").match(/"mu4c87[a-z0-9]+"/g).map((x) => x.slice(1, -1)))];
   assert.equal(ids.length, 59);
   const { e } = cargarV2(v2());
   const d = e.GYMAPP.storage.getData();

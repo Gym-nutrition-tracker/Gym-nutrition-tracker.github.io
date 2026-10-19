@@ -135,13 +135,12 @@ test("0 escrituras, sesiones intactas, schema 3 y sin sync", () => {
 });
 
 /* 14 */
-test("los IDs legacy (días y ejercicios) existen solo en js/rutinasHistoricas.js: 54 ejercicios + 5 días", () => {
+test("los IDs legacy (días y ejercicios) existen solo en js/planLegacy.js: 54 ejercicios + 5 días", () => {
   const dir = path.join(__dirname, "..", "js");
   const conIds = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && /mu4c87/.test(fs.readFileSync(path.join(dir, f), "utf8")));
-  assert.deepEqual(conIds, ["rutinasHistoricas.js"]);
-  const fuente = fs.readFileSync(path.join(dir, "rutinasHistoricas.js"), "utf8");
-  const bloque = fuente.slice(fuente.indexOf("var NOMBRES_EJERCICIOS_LEGACY"), fuente.indexOf("};", fuente.indexOf("var NOMBRES_EJERCICIOS_LEGACY")));
-  const ids = bloque.match(/"mu4c87[a-z0-9]+"/g);
+  assert.deepEqual(conIds, ["planLegacy.js"]);
+  const fuente = fs.readFileSync(path.join(dir, "planLegacy.js"), "utf8");
+  const ids = fuente.match(/\["mu4c87[a-z0-9]+"/g);
   assert.equal(ids.length, 54);
   assert.equal(new Set(ids).size, 54);
 });
