@@ -1601,6 +1601,25 @@ body {
   margin-top: 9px;
 }
 
+/* SYNC-03: "Sincronizar ahora" separado visualmente de guardar/recuperar */
+.sync-ahora {
+  margin: 10px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--color-borde);
+  border-radius: 10px;
+}
+
+.sync-conflicto {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-error);
+  border-radius: 10px;
+}
+
+.sync-conflicto p {
+  margin: 0 0 6px;
+}
+
 /* Backup */
 .seccion-backup {
   margin-top: 24px;
