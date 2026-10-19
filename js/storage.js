@@ -27,6 +27,10 @@ GYMAPP.storage = (function () {
      se borra automáticamente. */
   var CLAVE_PRE_E3 = "gymNutritionTracker_preE3LegacyBackfill";
 
+  /* E5: los ÚNICOS campos que se copian del ejercicio del plan a
+     ejercicios_realizados[i].prescripcion_snapshot de una sesión nueva. */
+  var CAMPOS_SNAPSHOT_PRESCRIPCION = ["nombre", "grupo_muscular", "series_objetivo", "reps_objetivo", "rir_objetivo", "rpe_objetivo", "peso_objetivo", "pausa"];
+
   var MENSAJE_MIGRACION_FALLIDA = "No se pudo actualizar el formato de tus datos. Tus datos anteriores se conservaron.";
 
   var MENSAJE_ERROR_GUARDADO = (
@@ -180,6 +184,44 @@ GYMAPP.storage = (function () {
     return typeof v === "number" && Math.floor(v) === v && v >= 1;
   }
 
+  /* E5: forma de un prescripcion_snapshot: exactamente los 8 campos;
+     nombre y grupo texto o null; el resto texto, número finito o null.
+     Devuelve null si es válido o el problema. */
+  function validarSnapshotPrescripcion(snap) {
+    if (!snap || typeof snap !== "object" || Array.isArray(snap)) return "prescripcion_snapshot no es un objeto.";
+    var claves = Object.keys(snap).sort();
+    if (JSON.stringify(claves) !== JSON.stringify(CAMPOS_SNAPSHOT_PRESCRIPCION.slice().sort())) return "prescripcion_snapshot no tiene los campos esperados.";
+    for (var i = 0; i < CAMPOS_SNAPSHOT_PRESCRIPCION.length; i++) {
+      var campo = CAMPOS_SNAPSHOT_PRESCRIPCION[i];
+      var v = snap[campo];
+      var texto = typeof v === "string";
+      var numero = typeof v === "number" && isFinite(v);
+      if (v !== null && !texto && !(numero && campo !== "nombre" && campo !== "grupo_muscular")) {
+        return "prescripcion_snapshot." + campo + " inválido.";
+      }
+    }
+    return null;
+  }
+
+  /* E5: campos de vínculo con el plan de una sesión. Son opcionales (las
+     sesiones anteriores a E5 no los tienen); si están, tienen que tener la
+     forma correcta. No se repara nada. */
+  function validarVinculoSesion(sesion) {
+    if (!sesion || typeof sesion !== "object") return null;
+    if (Object.prototype.hasOwnProperty.call(sesion, "plan_id") && (typeof sesion.plan_id !== "string" || !sesion.plan_id)) {
+      return "plan_id inválido en una sesión.";
+    }
+    var ejercicios = Array.isArray(sesion.ejercicios_realizados) ? sesion.ejercicios_realizados : [];
+    for (var i = 0; i < ejercicios.length; i++) {
+      var er = ejercicios[i];
+      if (er && typeof er === "object" && Object.prototype.hasOwnProperty.call(er, "prescripcion_snapshot")) {
+        var error = validarSnapshotPrescripcion(er.prescripcion_snapshot);
+        if (error) return error;
+      }
+    }
+    return null;
+  }
+
   /* Validación mínima pero estricta del formato schema 3. Devuelve null si
      es válido o un texto con el primer problema encontrado. No valida en
      detalle datos que schema 2 ya aceptaba (sesiones, nutrición, etc.). */
@@ -213,6 +255,10 @@ GYMAPP.storage = (function () {
     }
     if (activos !== 1) return "No hay exactamente un plan activo.";
     if (!Array.isArray(data.sesiones_entrenamiento)) return "sesiones_entrenamiento no es un array.";
+    for (var s = 0; s < data.sesiones_entrenamiento.length; s++) {
+      var errorVinculo = validarVinculoSesion(data.sesiones_entrenamiento[s]);
+      if (errorVinculo) return errorVinculo;
+    }
     return null;
   }
 
@@ -483,6 +529,9 @@ GYMAPP.storage = (function () {
     obtenerFalloBackfillE3: obtenerFalloBackfillE3,
     migrarDatos: migrarDatos,
     validarDatosV3: validarDatosV3,
+    CAMPOS_SNAPSHOT_PRESCRIPCION: CAMPOS_SNAPSHOT_PRESCRIPCION,
+    validarSnapshotPrescripcion: validarSnapshotPrescripcion,
+    validarVinculoSesion: validarVinculoSesion,
     verificarMigracionV3: verificarMigracionV3,
     crearDiaV3: crearDiaV3,
     crearEjercicioV3: crearEjercicioV3,

@@ -191,6 +191,89 @@ GYMAPP.planes = (function () {
     return { ok: true, valores: { nombre: nombre || null, fecha_inicio: inicio, fecha_fin: fin } };
   }
 
+  /* --- Vínculo sesión ↔ plan (E5) ---
+     Solo para sesiones NUEVAS de gimnasio. Las sesiones anteriores a E5 no
+     se tocan: no se les agrega plan_id ni snapshot. */
+
+  /* Copia de la prescripción del ejercicio del plan: SOLO los 8 campos de
+     storage.CAMPOS_SNAPSHOT_PRESCRIPCION (ausente → null). */
+  function crearSnapshotPrescripcion(ejercicio) {
+    var snap = {};
+    GYMAPP.storage.CAMPOS_SNAPSHOT_PRESCRIPCION.forEach(function (campo) {
+      snap[campo] = ejercicio && ejercicio[campo] !== undefined ? ejercicio[campo] : null;
+    });
+    return snap;
+  }
+
+  /* Devuelve null si la sesión de gimnasio se puede vincular al plan activo
+     (el plan existe, el día está en el plan y cada ejercicio está en ese
+     día), o el mensaje de error para el usuario. */
+  function validarSesionContraPlanActivo(data, sesion) {
+    var plan = planActivo(data);
+    if (!plan || !Array.isArray(plan.dias)) return "No se encontró el plan activo de tu rutina. No se guardó la sesión.";
+    var dia = plan.dias.filter(function (d) { return d && d.id === sesion.dia_rutina_id; })[0];
+    if (!dia) return "El día seleccionado ya no existe en tu plan activo. No se guardó la sesión.";
+    var ejercicios = sesion.ejercicios_realizados || [];
+    for (var i = 0; i < ejercicios.length; i++) {
+      var existe = (dia.ejercicios || []).some(function (e) { return e && e.id === ejercicios[i].ejercicio_id; });
+      if (!existe) return "Un ejercicio de la sesión ya no existe en ese día del plan activo. No se guardó la sesión.";
+    }
+    return null;
+  }
+
+  /* Copia de `sesion` con plan_id (después de "tipo") y el campo extra en
+     cada ejercicio realizado. */
+  function conPlanId(sesion, planId) {
+    var nueva = {};
+    Object.keys(sesion).forEach(function (k) {
+      if (k === "plan_id") return;
+      nueva[k] = sesion[k];
+      if (k === "tipo") nueva.plan_id = planId;
+    });
+    if (!("plan_id" in nueva)) nueva.plan_id = planId;
+    return nueva;
+  }
+
+  /* Sesión nueva de gimnasio → { ok: true, sesion } con plan_id y
+     prescripcion_snapshot en cada ejercicio, o { ok: false, error }. Pura:
+     no modifica `data` ni `sesion`. Se llama justo antes del único
+     updateData que guarda la sesión. */
+  function vincularSesionAlPlanActivo(data, sesion) {
+    var error = validarSesionContraPlanActivo(data, sesion);
+    if (error) return { ok: false, error: error };
+    var plan = planActivo(data);
+    var nueva = conPlanId(sesion, plan.plan_id);
+    nueva.ejercicios_realizados = sesion.ejercicios_realizados.map(function (er) {
+      var ejercicio = buscarEjercicioEnDiaActivo(data, sesion.dia_rutina_id, er.ejercicio_id);
+      var copia = {};
+      Object.keys(er).forEach(function (k) { if (k !== "prescripcion_snapshot") copia[k] = er[k]; });
+      copia.prescripcion_snapshot = crearSnapshotPrescripcion(ejercicio);
+      return copia;
+    });
+    return { ok: true, sesion: nueva };
+  }
+
+  /* Edición: la sesión editada conserva plan_id y los snapshots de la
+     original tal cual (nunca se regeneran). Si la original no los tenía
+     (sesión anterior a E5), no se agregan. */
+  function conservarVinculoPlan(original, editada) {
+    var resultado = Object.prototype.hasOwnProperty.call(original, "plan_id") ? conPlanId(editada, original.plan_id) : editada;
+    var snapshots = {};
+    (original.ejercicios_realizados || []).forEach(function (er) {
+      if (er && Object.prototype.hasOwnProperty.call(er, "prescripcion_snapshot")) snapshots[er.ejercicio_id] = er.prescripcion_snapshot;
+    });
+    if (Array.isArray(resultado.ejercicios_realizados)) {
+      resultado.ejercicios_realizados = resultado.ejercicios_realizados.map(function (er) {
+        if (!Object.prototype.hasOwnProperty.call(snapshots, er.ejercicio_id)) return er;
+        var copia = {};
+        Object.keys(er).forEach(function (k) { if (k !== "prescripcion_snapshot") copia[k] = er[k]; });
+        copia.prescripcion_snapshot = snapshots[er.ejercicio_id];
+        return copia;
+      });
+    }
+    return resultado;
+  }
+
   /* --- Mutación (solo dentro de storage.updateData) --- */
 
   function exigirPlanActivo(data) {
@@ -266,6 +349,10 @@ GYMAPP.planes = (function () {
     esFechaValida: esFechaValida,
     validarMetadataPlan: validarMetadataPlan,
     actualizarMetadataPlanActivo: actualizarMetadataPlanActivo,
+    crearSnapshotPrescripcion: crearSnapshotPrescripcion,
+    validarSesionContraPlanActivo: validarSesionContraPlanActivo,
+    vincularSesionAlPlanActivo: vincularSesionAlPlanActivo,
+    conservarVinculoPlan: conservarVinculoPlan,
     agregarDiaAlPlanActivo: agregarDiaAlPlanActivo,
     eliminarDiaDelPlanActivo: eliminarDiaDelPlanActivo,
     agregarEjercicioADiaActivo: agregarEjercicioADiaActivo,

@@ -106,7 +106,13 @@ test("Entrenar → edición histórica: nombre real cuando hay mapping; texto de
   assert.equal(R.nombreEjercicioConocido(d, "mu4c87epd9q159"), "DOMINADAS TOMA NEUTRA");
   assert.equal(R.nombreEjercicioConocido(d, TRACCION + "-ej1"), null);
   const fuente = fs.readFileSync(path.join(__dirname, "..", "js", "entrenamiento.js"), "utf8");
-  assert.match(fuente, /nombreEjercicioConocido\(data, er\.ejercicio_id\) \|\| "Ejercicio eliminado de la rutina"/);
+  /* E5: la edición resuelve por sesión; una sesión vieja (sin snapshot ni
+     plan_id) usa la resolución de siempre y sin datos cae al texto de siempre. */
+  assert.match(fuente, /resolverEjercicioDeSesion\(data, sesion, er\)/);
+  assert.match(fuente, /resuelto \? resuelto\.nombre : "Ejercicio eliminado de la rutina"/);
+  const vieja = d.sesiones_entrenamiento.find((s) => s.dia_rutina_id === TRACCION);
+  assert.equal(R.resolverEjercicioDeSesion(d, vieja, { ejercicio_id: "mu4c87epd9q159" }).nombre, "DOMINADAS TOMA NEUTRA");
+  assert.equal(R.resolverEjercicioDeSesion(d, vieja, { ejercicio_id: TRACCION + "-ej1" }), null);
 });
 
 /* 10 */

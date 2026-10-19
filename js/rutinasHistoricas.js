@@ -69,7 +69,40 @@ GYMAPP.rutinasHistoricas = (function () {
     return nombreEjercicioConocido(data, ejercicioId) || NOMBRE_EJERCICIO_DESCONOCIDO;
   }
 
+  /* E5: datos de un ejercicio TAL COMO SE REGISTRÓ en una sesión, en orden:
+     1. prescripcion_snapshot de la sesión;
+     2. plan_id de la sesión + ese plan persistido;
+     3. resolución actual por IDs (plan activo, planes, dataset legacy);
+     4. null (quien llama decide el texto neutral).
+     Devuelve { nombre, prescripcion } (prescripcion: objeto con
+     series_objetivo/reps_objetivo/... o null si solo se conoce el nombre). */
+  function resolverEjercicioDeSesion(data, sesion, er) {
+    var snap = er && er.prescripcion_snapshot;
+    if (snap) return { nombre: snap.nombre || "(sin nombre)", prescripcion: snap };
+    if (sesion && sesion.plan_id) {
+      var delPlan = GYMAPP.planes.buscarEjercicioEnPlan(data, sesion.plan_id, er.ejercicio_id);
+      if (delPlan) return { nombre: delPlan.nombre || "(sin nombre)", prescripcion: delPlan };
+    }
+    var activo = GYMAPP.planes.buscarEjercicioActivo(data, er.ejercicio_id);
+    if (activo) return { nombre: activo.nombre || "(sin nombre)", prescripcion: activo };
+    var conocido = nombreEjercicioConocido(data, er.ejercicio_id);
+    return conocido ? { nombre: conocido, prescripcion: null } : null;
+  }
+
+  /* E5: nombre del día de una sesión: el del plan de la sesión si tiene
+     plan_id y el día está ahí; si no, la resolución actual. */
+  function resolverNombreDiaDeSesion(data, sesion) {
+    if (sesion && sesion.plan_id) {
+      var plan = GYMAPP.planes.buscarPlan(data, sesion.plan_id);
+      var dia = plan && Array.isArray(plan.dias) ? plan.dias.filter(function (d) { return d && d.id === sesion.dia_rutina_id; })[0] : null;
+      if (dia) return dia.nombre;
+    }
+    return resolverNombreDiaRutina(data, sesion.dia_rutina_id);
+  }
+
   return {
+    resolverEjercicioDeSesion: resolverEjercicioDeSesion,
+    resolverNombreDiaDeSesion: resolverNombreDiaDeSesion,
     resolverNombreBloqueHistorico: resolverNombreBloqueHistorico,
     resolverNombreEjercicioHistorico: resolverNombreEjercicioHistorico,
     nombreEjercicioConocido: nombreEjercicioConocido,

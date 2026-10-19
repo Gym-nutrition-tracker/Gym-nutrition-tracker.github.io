@@ -52,6 +52,9 @@ GYMAPP.backupImport = (function () {
 
     var sesionesValidas = datos.sesiones_entrenamiento.every(function (s) {
       if (!esObjeto(s) || !esIdValido(s.id) || typeof s.fecha !== "string" || !s.fecha) return false;
+      /* E5: plan_id y prescripcion_snapshot son opcionales; si vienen,
+         con la forma correcta. */
+      if (GYMAPP.storage.validarVinculoSesion(s)) return false;
       if (s.ejercicios_realizados === undefined || s.ejercicios_realizados === null) return true;
       return Array.isArray(s.ejercicios_realizados) && s.ejercicios_realizados.every(function (er) {
         return esObjeto(er) && (er.series === undefined || Array.isArray(er.series));

@@ -402,10 +402,11 @@ GYMAPP.entrenamiento = (function () {
     var resumen;
 
     if (sesion.tipo === "gimnasio") {
-      /* Bloque activo -> su nombre actual; bloque histórico -> nombre
-         real si se conoce (historial/legacy), si no "Bloque anterior". */
+      /* Día del plan de la sesión (E5, si tiene plan_id); si no: bloque
+         activo -> su nombre actual; bloque histórico -> nombre real si se
+         conoce (historial/legacy), si no "Bloque anterior". */
       var cantidad = (sesion.ejercicios_realizados || []).length;
-      resumen = "🏋️ " + GYMAPP.util.escapeHtml(GYMAPP.rutinasHistoricas.resolverNombreDiaRutina(data, sesion.dia_rutina_id)) +
+      resumen = "🏋️ " + GYMAPP.util.escapeHtml(GYMAPP.rutinasHistoricas.resolverNombreDiaDeSesion(data, sesion)) +
         " · " + cantidad + (cantidad === 1 ? " ejercicio" : " ejercicios");
     } else {
       resumen = resumenSesionNoGimnasio(sesion);
@@ -460,14 +461,14 @@ GYMAPP.entrenamiento = (function () {
         seriesPorEjercicio[er.ejercicio_id] = er.series.map(function (s) {
           return { peso_kg: String(s.peso_kg), reps: String(s.reps) };
         });
-        var ejercicioRutina = GYMAPP.planes.buscarEjercicioActivo(data, er.ejercicio_id);
+        /* Nombre y objetivo tal como se registraron (E5: snapshot de la
+           sesión; si no tiene, la resolución de siempre). Sin datos: el
+           texto de siempre. */
+        var resuelto = GYMAPP.rutinasHistoricas.resolverEjercicioDeSesion(data, sesion, er);
         ejerciciosHistoricos.push({
           ejercicio_id: er.ejercicio_id,
-          /* Fuera de la rutina actual: nombre real si se conoce (módulo
-             compartido de rutinas históricas); si no, el texto de siempre. */
-          etiqueta: ejercicioRutina ? (ejercicioRutina.nombre || "(sin nombre)")
-            : (GYMAPP.rutinasHistoricas.nombreEjercicioConocido(data, er.ejercicio_id) || "Ejercicio eliminado de la rutina"),
-          objetivo: ejercicioRutina ? (ejercicioRutina.series_objetivo + " × " + ejercicioRutina.reps_objetivo) : ""
+          etiqueta: resuelto ? resuelto.nombre : "Ejercicio eliminado de la rutina",
+          objetivo: resuelto && resuelto.prescripcion ? (resuelto.prescripcion.series_objetivo + " × " + resuelto.prescripcion.reps_objetivo) : ""
         });
       });
     }
@@ -484,7 +485,7 @@ GYMAPP.entrenamiento = (function () {
       tipo: sesion.tipo,
       diaRutinaId: sesion.dia_rutina_id || "",
       /* Solo informativo (el día de una sesión histórica no se edita). */
-      nombreDiaHistorico: sesion.dia_rutina_id ? GYMAPP.rutinasHistoricas.resolverNombreDiaRutina(data, sesion.dia_rutina_id) : null,
+      nombreDiaHistorico: sesion.dia_rutina_id ? GYMAPP.rutinasHistoricas.resolverNombreDiaDeSesion(data, sesion) : null,
       seriesPorEjercicio: seriesPorEjercicio,
       ejerciciosHistoricos: ejerciciosHistoricos,
       duracion_min: sesion.duracion_min != null ? String(sesion.duracion_min) : "",
@@ -756,6 +757,22 @@ GYMAPP.entrenamiento = (function () {
         return;
       }
       sesion.ejercicios_realizados = ejerciciosRealizados;
+
+      if (esEdicion) {
+        /* E5: la edición conserva plan_id y los prescripcion_snapshot
+           originales (nunca se regeneran desde el plan actual). */
+        sesion = GYMAPP.planes.conservarVinculoPlan(sesionOriginal, sesion);
+      } else {
+        /* E5: sesión nueva → plan_id del plan activo y snapshot de la
+           prescripción de cada ejercicio, validados y armados ANTES del
+           único guardado (la sesión se persiste completa o no se persiste). */
+        var vinculo = GYMAPP.planes.vincularSesionAlPlanActivo(data, sesion);
+        if (!vinculo.ok) {
+          mostrarMensaje(container, vinculo.error, "error");
+          return;
+        }
+        sesion = vinculo.sesion;
+      }
     } else if (estado.tipo === "natacion") {
       var distanciaValor = null;
       if (estado.detalle.distancia_m !== "") {
