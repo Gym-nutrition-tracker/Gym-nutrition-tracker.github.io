@@ -1857,6 +1857,43 @@ GYMAPP.progreso = (function () {
     return data.rutina.dias.map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
   }
 
+  /* COMPATIBILIDAD LEGACY (TEMPORAL): nombres de los 5 días del plan
+     anterior, recuperados del backup previo, indexados por su
+     dia_rutina_id real. Es el ÚNICO lugar con IDs históricos hardcodeados.
+     Solo se usa para mostrar un nombre: nunca modifica sesiones ni IDs.
+     El orden es el del plan original y define el orden del selector.
+     Se reemplaza en PROG-04.1 / schema 3 por un historial formal de planes
+     (snapshot de días y ejercicios); entonces este mapa se elimina. */
+  var NOMBRES_BLOQUES_LEGACY = [
+    { id: "mu4c87ep730qj1", nombre: "EMPUJE" },
+    { id: "mu4c87ep241kdy", nombre: "PIERNAS (ENFOQUE EN CUADRICEPS)" },
+    { id: "mu4c87ep2snsau", nombre: "TRACCIÓN" },
+    { id: "mu4c87epiiepiq", nombre: "PIERNAS (ENFOQUE EN ISQUIOS)" },
+    { id: "mu4c87eptjrn47", nombre: "TREN SUPERIOR" }
+  ];
+
+  /* Nombre persistido de un bloque histórico. Hoy el storage no guarda
+     ningún snapshot de rutinas anteriores, así que siempre devuelve null;
+     es el punto de entrada donde PROG-04.1 / schema 3 va a leer el nombre
+     real desde el historial formal de planes. */
+  function nombreBloqueDesdeHistorialPersistido(data, diaRutinaId) {
+    return null;
+  }
+
+  /* Resolución central del nombre de un bloque histórico, en orden:
+     1. historial persistido (futuro);
+     2. mapa de compatibilidad legacy;
+     3. null -> quien llama usa el fallback por fechas reales.
+     Devuelve { nombre, orden } (orden solo para los legacy). */
+  function resolverNombreBloqueHistorico(data, diaRutinaId) {
+    var persistido = nombreBloqueDesdeHistorialPersistido(data, diaRutinaId);
+    if (persistido) return { nombre: persistido, orden: null };
+    for (var i = 0; i < NOMBRES_BLOQUES_LEGACY.length; i++) {
+      if (NOMBRES_BLOQUES_LEGACY[i].id === diaRutinaId) return { nombre: NOMBRES_BLOQUES_LEGACY[i].nombre, orden: i };
+    }
+    return null;
+  }
+
   function construirOpcionesBloquesHistoricos(data) {
     var activos = {};
     data.rutina.dias.forEach(function (dia) { activos[dia.id] = true; });
@@ -1872,14 +1909,30 @@ GYMAPP.progreso = (function () {
       b.sesiones += 1;
     });
 
-    var lista = Object.keys(porBloque).map(function (id) { return porBloque[id]; });
+    var lista = Object.keys(porBloque).map(function (id) {
+      var b = porBloque[id];
+      b.resuelto = resolverNombreBloqueHistorico(data, id);
+      return b;
+    });
+
+    /* Orden: primero los bloques con nombre conocido (los legacy en el
+       orden del plan original), después los que usan fallback, del más
+       reciente al más antiguo. */
     lista.sort(function (a, b) {
+      var ra = a.resuelto, rb = b.resuelto;
+      if (ra && !rb) return -1;
+      if (!ra && rb) return 1;
+      if (ra && rb) {
+        var oa = ra.orden === null ? Infinity : ra.orden;
+        var ob = rb.orden === null ? Infinity : rb.orden;
+        if (oa !== ob) return oa - ob;
+      }
       if (a.ultimaISO !== b.ultimaISO) return a.ultimaISO > b.ultimaISO ? -1 : 1;
       if (a.primeraISO !== b.primeraISO) return a.primeraISO > b.primeraISO ? -1 : 1;
       return a.id < b.id ? -1 : 1;
     });
 
-    /* Con sesiones en más de un año, se agrega el año para no confundir. */
+    /* Con sesiones en más de un año, el fallback agrega el año. */
     var anios = {};
     lista.forEach(function (b) { anios[b.primeraISO.slice(0, 4)] = true; anios[b.ultimaISO.slice(0, 4)] = true; });
     var conAnio = Object.keys(anios).length > 1;
@@ -1890,12 +1943,18 @@ GYMAPP.progreso = (function () {
 
     var vistas = {};
     return lista.map(function (b) {
-      var rango = b.primeraISO === b.ultimaISO ? fecha(b.primeraISO) : fecha(b.primeraISO) + "–" + fecha(b.ultimaISO);
-      var nombre = "Bloque anterior · " + rango + " · " + b.sesiones + (b.sesiones === 1 ? " sesión" : " sesiones");
-      /* Si dos bloques coinciden en fechas y cantidad, se numeran. */
+      var cantidad = b.sesiones + (b.sesiones === 1 ? " sesión" : " sesiones");
+      var nombre;
+      if (b.resuelto) {
+        nombre = b.resuelto.nombre + " · " + cantidad;
+      } else {
+        var rango = b.primeraISO === b.ultimaISO ? fecha(b.primeraISO) : fecha(b.primeraISO) + "–" + fecha(b.ultimaISO);
+        nombre = "Bloque anterior · " + rango + " · " + cantidad;
+      }
+      /* Si dos bloques quedan con la misma etiqueta, se numeran. */
       vistas[nombre] = (vistas[nombre] || 0) + 1;
       if (vistas[nombre] > 1) nombre += " (" + vistas[nombre] + ")";
-      return { id: b.id, nombre: nombre, primeraISO: b.primeraISO, ultimaISO: b.ultimaISO, sesiones: b.sesiones };
+      return { id: b.id, nombre: nombre, nombreConocido: b.resuelto ? b.resuelto.nombre : null, primeraISO: b.primeraISO, ultimaISO: b.ultimaISO, sesiones: b.sesiones };
     });
   }
 
@@ -2906,6 +2965,7 @@ GYMAPP.progreso = (function () {
     construirOpcionesBloquesActivos: construirOpcionesBloquesActivos,
     construirOpcionesBloquesHistoricos: construirOpcionesBloquesHistoricos,
     distinguirEjerciciosEliminados: distinguirEjerciciosEliminados,
+    resolverNombreBloqueHistorico: resolverNombreBloqueHistorico,
     renderSelectorBloqueEjercicio: renderSelectorBloqueEjercicio,
     VALOR_HISTORIAL_RUTINAS: VALOR_HISTORIAL_RUTINAS
   };

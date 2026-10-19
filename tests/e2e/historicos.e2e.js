@@ -93,6 +93,34 @@ const puntosGrafico = (page) => page.evaluate(() => {
     const contexto = await page.$eval(".progreso-estado-plan .estado-plan-contexto", (p) => p.textContent);
     check("PROG-04: inicio observado en la rutina actual (12/10)", /Inicio observado: 12\/10/.test(contexto), contexto);
 
+    /* Compatibilidad legacy: los 5 días reales del plan anterior. */
+    const pageL = await browser.newPage({ viewport: { width: 390, height: 900 } });
+    pageL.on("pageerror", (e) => errores.push(e.message));
+    pageL.on("console", (m) => { if (m.type() === "error") errores.push(m.text()); });
+    pageL.on("request", (q) => { if (/supabase\.co/.test(q.url())) supabase.push(q.url()); });
+    await pageL.clock.install({ time: new Date(AHORA) });
+    await pageL.clock.pauseAt(new Date(AHORA));
+    const datosL = JSON.stringify(datasetHistoricos({ legacy: true }));
+    await pageL.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, datosL);
+    await pageL.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+    await pageL.click("#nav-progreso");
+    const legacyEsperado = ["EMPUJE · 4 sesiones", "PIERNAS (ENFOQUE EN CUADRICEPS) · 5 sesiones", "TRACCIÓN · 5 sesiones", "PIERNAS (ENFOQUE EN ISQUIOS) · 4 sesiones", "TREN SUPERIOR · 4 sesiones"];
+    for (const seccion of ["evolucion", "analisis"]) {
+      await pageL.selectOption("#select-" + seccion + "-bloque", "__historial__");
+      const hl = await textos(pageL, "#select-" + seccion + "-bloque-historico");
+      check("Legacy " + seccion + ": los 5 días por nombre y en orden del plan", JSON.stringify(hl.slice(0, 5)) === JSON.stringify(legacyEsperado), hl);
+      check("Legacy " + seccion + ": abre EMPUJE", (await seleccionado(pageL, "#select-" + seccion + "-bloque-historico")) === "mu4c87ep730qj1");
+    }
+    await pageL.selectOption("#select-evolucion-bloque-historico", "mu4c87ep2snsau");
+    check("Legacy: gráfico de TRACCIÓN con sus 5 sesiones", (await puntosGrafico(pageL)) === 5, await puntosGrafico(pageL));
+    await pageL.selectOption("#select-analisis-bloque-historico", "mu4c87ep241kdy");
+    const tituloL = await pageL.$eval(".progreso-analisis-semanal h4", (h) => h.textContent);
+    check("Legacy: análisis con título PIERNAS (ENFOQUE EN CUADRICEPS)", /^PIERNAS \(ENFOQUE EN CUADRICEPS\) · 5 sesiones/.test(tituloL), tituloL);
+    const contextoL = await pageL.$eval(".progreso-estado-plan .estado-plan-contexto", (p) => p.textContent);
+    check("Legacy: PROG-04 sigue en la rutina actual", /Inicio observado: 12\/10/.test(contextoL), contextoL);
+    check("Legacy: localStorage sin cambios", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === datosL);
+    await pageL.close();
+
     check("sin errores de consola", errores.length === 0, errores);
     check("sin requests a Supabase", supabase.length === 0, supabase);
     check("localStorage sin cambios", (await page.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === datos);

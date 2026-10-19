@@ -46,6 +46,26 @@ function datasetHistoricos(opciones) {
     });
   }
 
+  /* Opcional: los 5 días reales del plan anterior (IDs legacy del backup),
+     con fechas y cantidades distintas, en orden de fechas mezclado a
+     propósito respecto del orden del plan. */
+  if (opciones.legacy) {
+    [
+      { id: "mu4c87eptjrn47", desde: "2026-09-19", semanas: 4 },
+      { id: "mu4c87ep2snsau", desde: "2026-09-17", semanas: 5 },
+      { id: "mu4c87ep730qj1", desde: "2026-09-15", semanas: 4 },
+      { id: "mu4c87epiiepiq", desde: "2026-09-18", semanas: 4 },
+      { id: "mu4c87ep241kdy", desde: "2026-09-16", semanas: 5 }
+    ].forEach((h) => {
+      for (let i = 0; i < h.semanas; i++) {
+        gym(sumarDias(h.desde, i * 7), h.id, 7, [
+          { id: h.id + "-ej1", series: serie(20, [10]).concat(serie(30, [10, 10, 9 + (i % 2)])) },
+          { id: h.id + "-ej2", series: serie(15, [12, 12, 12]) }
+        ]);
+      }
+    });
+  }
+
   /* Opcional: un bloque eliminado hace pocos días con RPE 10 (para probar
      que PROG-04 lo ignora). */
   if (opciones.historicoReciente) {

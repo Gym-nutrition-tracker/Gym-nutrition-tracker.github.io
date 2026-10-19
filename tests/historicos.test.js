@@ -145,3 +145,93 @@ test("sin cambios en localStorage ni en schema_version", () => {
   assert.equal(e.localStorage.getItem(CLAVE), antes);
   assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
 });
+
+/* --- Compatibilidad legacy: nombres reales del plan anterior --- */
+
+const LEGACY = [
+  ["mu4c87ep730qj1", "EMPUJE"],
+  ["mu4c87ep241kdy", "PIERNAS (ENFOQUE EN CUADRICEPS)"],
+  ["mu4c87ep2snsau", "TRACCIÓN"],
+  ["mu4c87epiiepiq", "PIERNAS (ENFOQUE EN ISQUIOS)"],
+  ["mu4c87eptjrn47", "TREN SUPERIOR"]
+];
+
+LEGACY.forEach(([id, nombre], i) => {
+  test("legacy " + (i + 1) + ": " + id + " → " + nombre, () => {
+    const { P, d } = entorno(datasetHistoricos({ legacy: true }));
+    const r = P.resolverNombreBloqueHistorico(d, id);
+    assert.equal(r.nombre, nombre);
+    const opcion = P.construirOpcionesBloquesHistoricos(d).filter((o) => o.id === id)[0];
+    assert.match(opcion.nombre, new RegExp("^" + nombre.replace(/[()]/g, "\\$&") + " · \\d+ sesiones$"));
+    assert.doesNotMatch(opcion.nombre, /\d\d\/\d\d/, "el identificador principal no son las fechas");
+  });
+});
+
+test("ID histórico desconocido → fallback por fechas reales", () => {
+  const { P, d } = entorno(datasetHistoricos({ legacy: true }));
+  assert.equal(P.resolverNombreBloqueHistorico(d, "old-2"), null);
+  assert.equal(P.resolverNombreBloqueHistorico(d, "id-que-no-existe"), null);
+  const opcion = P.construirOpcionesBloquesHistoricos(d).filter((o) => o.id === "old-2")[0];
+  assert.equal(opcion.nombre, "Bloque anterior · 04/08–08/09 · 6 sesiones");
+});
+
+test("selector histórico: los 5 días del plan anterior por nombre y en su orden, después los desconocidos", () => {
+  const { P, d } = entorno(datasetHistoricos({ legacy: true }));
+  const textos = clonar(P.construirOpcionesBloquesHistoricos(d).map((o) => o.nombre));
+  assert.deepEqual(textos.slice(0, 5), [
+    "EMPUJE · 4 sesiones",
+    "PIERNAS (ENFOQUE EN CUADRICEPS) · 5 sesiones",
+    "TRACCIÓN · 5 sesiones",
+    "PIERNAS (ENFOQUE EN ISQUIOS) · 4 sesiones",
+    "TREN SUPERIOR · 4 sesiones"
+  ]);
+  assert.equal(textos.length, 10);
+  textos.slice(5).forEach((t) => assert.match(t, /^Bloque anterior · /));
+  const html = P.renderSelectorBloqueEjercicio("select-analisis-bloque", "select-analisis-ejercicio", P.construirOpcionesBloquesActivos(d), P.construirOpcionesBloquesHistoricos(d), [], "mu4c87ep2snsau", "");
+  assert.match(html, /<option value="mu4c87ep2snsau" selected>TRACCIÓN · 5 sesiones<\/option>/);
+  assert.match(html, /<option value="__historial__" selected>Historial de rutinas anteriores<\/option>/);
+});
+
+test("un ID legacy que siga en la rutina actual usa su nombre actual (no el legacy)", () => {
+  const data = datasetHistoricos({ legacy: true });
+  data.rutina.dias.push({ id: "mu4c87ep730qj1", nombre: "Empuje (renombrado)", ejercicios: [] });
+  const { P, d } = entorno(data);
+  assert.ok(P.construirOpcionesBloquesActivos(d).some((o) => o.nombre === "Empuje (renombrado)"));
+  assert.ok(!P.construirOpcionesBloquesHistoricos(d).some((o) => o.id === "mu4c87ep730qj1"));
+});
+
+test("legacy: Evolución y Análisis semanal siguen usando el dia_rutina_id real", () => {
+  const { P, d } = entorno(datasetHistoricos({ legacy: true }));
+  const serie = P.construirSerieSemanalBloque(d.sesiones_entrenamiento, "mu4c87ep241kdy");
+  assert.equal(P.contarSemanasRealizadas(serie), 5);
+  const ej = P.reconstruirEjecucionesEjercicio(d.sesiones_entrenamiento, "mu4c87ep241kdy-ej1");
+  assert.equal(ej.length, 5);
+});
+
+test("legacy: PROG-04 sigue ignorando los bloques históricos", () => {
+  const con = entorno(datasetHistoricos({ legacy: true }));
+  const sin = entorno(datasetHistoricos());
+  const rCon = con.P.calcularEstadoPlan(con.P.construirInputEstadoPlan(con.d, HOY));
+  const rSin = sin.P.calcularEstadoPlan(sin.P.construirInputEstadoPlan(sin.d, HOY));
+  assert.deepEqual(clonar(rCon), clonar(rSin));
+});
+
+test("legacy: 0 escrituras, sesiones e IDs intactos, schema 2, sin sync", () => {
+  const data = datasetHistoricos({ legacy: true });
+  const { e, P, d } = entorno(data);
+  e.login();
+  const antes = e.localStorage.getItem(CLAVE);
+  const escrituras = e.localStorage._escrituras.length;
+  LEGACY.forEach(([id]) => P.resolverNombreBloqueHistorico(d, id));
+  P.construirOpcionesBloquesHistoricos(d);
+  P.calcularEstadoPlan(P.construirInputEstadoPlan(d, HOY));
+  assert.equal(e.localStorage._escrituras.length, escrituras);
+  assert.equal(e.localStorage.getItem(CLAVE), antes);
+  const guardado = JSON.parse(antes);
+  LEGACY.forEach(([id]) => assert.ok(guardado.sesiones_entrenamiento.some((s) => s.dia_rutina_id === id), "conserva " + id));
+  assert.equal(guardado.schema_version, 2);
+  assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
+  assert.equal(e.nube.llamadas.length, 0);
+  const fuente = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", "progreso.js"), "utf8");
+  assert.equal((fuente.match(/mu4c87/g) || []).length, 5, "los IDs legacy están solo en el mapa central");
+});
