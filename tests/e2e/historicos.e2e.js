@@ -70,7 +70,7 @@ const puntosGrafico = (page) => page.evaluate(() => {
     await page.selectOption("#select-evolucion-bloque-historico", "old-2");
     check("Evolución: gráfico del histórico con sus 6 sesiones", (await puntosGrafico(page)) === 6, await puntosGrafico(page));
     const ejEvo = await textos(page, "#select-evolucion-ejercicio");
-    check("Evolución: ejercicios del histórico distinguibles", JSON.stringify(ejEvo) === JSON.stringify(["Todo el bloque", "Ejercicio anterior 1 · máx. 26 kg", "Ejercicio anterior 2 · máx. 40 kg", "Ejercicio anterior 3 · peso corporal"]), ejEvo);
+    check("Evolución: ejercicios del histórico distinguibles", JSON.stringify(ejEvo) === JSON.stringify(["Todo el bloque", "Ejercicio anterior · máx. 26 kg", "Ejercicio anterior · máx. 40 kg", "Ejercicio anterior · peso corporal"]), ejEvo);
     await page.selectOption("#select-evolucion-ejercicio", "old-2-e1");
     check("Evolución: gráfico de un ejercicio histórico", (await puntosGrafico(page)) === 6);
     await page.selectOption("#select-evolucion-bloque", "D3");
@@ -116,6 +116,24 @@ const puntosGrafico = (page) => page.evaluate(() => {
     await pageL.selectOption("#select-analisis-bloque-historico", "mu4c87ep241kdy");
     const tituloL = await pageL.$eval(".progreso-analisis-semanal h4", (h) => h.textContent);
     check("Legacy: análisis con título PIERNAS (ENFOQUE EN CUADRICEPS)", /^PIERNAS \(ENFOQUE EN CUADRICEPS\) · 5 sesiones/.test(tituloL), tituloL);
+    /* Ejercicios con nombre real dentro de EMPUJE (Evolución y Análisis). */
+    const esperadoEmpuje = ["Todo el bloque", "PRESS BANCA C/BARRA · máx. 60 kg", "PRESS INCLINADO EN SMITH · máx. 20 kg", "MARIPOSA · máx. 105 kg",
+      "FLEXIONES DE BRAZO EN CAJON BAJO O STEP · peso corporal", "Ejercicio anterior · máx. 30 kg", "Ejercicio anterior · máx. 15 kg"];
+    for (const seccion of ["evolucion", "analisis"]) {
+      await pageL.selectOption("#select-" + seccion + "-bloque-historico", "mu4c87ep730qj1");
+      const ejs = await textos(pageL, "#select-" + seccion + "-ejercicio");
+      check("Legacy " + seccion + ": ejercicios de EMPUJE con nombre real", JSON.stringify(ejs) === JSON.stringify(esperadoEmpuje), ejs);
+    }
+    await pageL.selectOption("#select-evolucion-ejercicio", "mu4c87epsr80xw");
+    check("Legacy: gráfico de PRESS BANCA C/BARRA con sus 4 ejecuciones", (await puntosGrafico(pageL)) === 4, await puntosGrafico(pageL));
+    await pageL.selectOption("#select-analisis-ejercicio", "mu4c87epra2lxd");
+    const tituloEj = await pageL.$eval(".progreso-analisis-semanal h4", (h) => h.textContent);
+    check("Legacy: análisis del ejercicio con su nombre real", /^MARIPOSA · máx\. 105 kg/.test(tituloEj), tituloEj);
+    const proximaEjL = await pageL.$eval(".progreso-proxima-sesion", (p) => p.textContent);
+    check("Legacy: PROG-03 del ejercicio histórico funciona", /Próxima vez en este ejercicio/.test(proximaEjL) && /Estado/.test(proximaEjL), proximaEjL.slice(0, 100));
+    const htmlL = await pageL.content();
+    check("Legacy: sin 'Ejercicio anterior N' ni 'Ejercicio eliminado' en Progreso", !/Ejercicio anterior \d/.test(htmlL) && !/Ejercicio eliminado de la rutina/.test(htmlL));
+
     const contextoL = await pageL.$eval(".progreso-estado-plan .estado-plan-contexto", (p) => p.textContent);
     check("Legacy: PROG-04 sigue en la rutina actual", /Inicio observado: 12\/10/.test(contextoL), contextoL);
     check("Legacy: localStorage sin cambios", (await pageL.evaluate(() => localStorage.getItem("gymNutritionTracker"))) === datosL);

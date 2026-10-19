@@ -87,7 +87,7 @@ test("sin históricos el selector queda igual que antes (sin opción de historia
 test("los ejercicios de un bloque histórico tienen etiquetas distinguibles (sin inventar nombres)", () => {
   const { P, d } = entorno(datasetHistoricos());
   const opciones = P.distinguirEjerciciosEliminados(d, "old-1", P.construirOpcionesEjerciciosDeBloque(d, "old-1"));
-  assert.deepEqual(clonar(opciones.map((o) => o.nombre)), ["Ejercicio anterior 1 · máx. 25 kg", "Ejercicio anterior 2 · máx. 40 kg", "Ejercicio anterior 3 · peso corporal"]);
+  assert.deepEqual(clonar(opciones.map((o) => o.nombre)), ["Ejercicio anterior · máx. 25 kg", "Ejercicio anterior · máx. 40 kg", "Ejercicio anterior · peso corporal"]);
   const activos = P.distinguirEjerciciosEliminados(d, "D1", P.construirOpcionesEjerciciosDeBloque(d, "D1"));
   assert.deepEqual(clonar(activos.map((o) => o.nombre)), ["Día 1 · Pecho ej 1", "Día 1 · Pecho ej 2"], "los activos no cambian");
 });
@@ -233,7 +233,7 @@ test("legacy: 0 escrituras, sesiones e IDs intactos, schema 2, sin sync", () => 
   assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
   assert.equal(e.nube.llamadas.length, 0);
   const leer = (f) => require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", f), "utf8");
-  assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 5, "los IDs legacy están solo en el mapa central");
+  assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 59, "5 días + 54 ejercicios, solo en el mapa central");
   assert.equal((leer("progreso.js").match(/mu4c87/g) || []).length, 0);
   assert.equal((leer("entrenamiento.js").match(/mu4c87/g) || []).length, 0);
 });

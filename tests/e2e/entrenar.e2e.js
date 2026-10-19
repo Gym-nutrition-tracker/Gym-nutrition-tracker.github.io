@@ -90,7 +90,10 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
     check("editar: muestra el día TRACCIÓN", diaEdicion === "TRACCIÓN", diaEdicion);
     const tarjetasEj = await page.$$eval(".ejercicio-entrenar-card", (c) => c.length);
     check("editar: muestra los 10 ejercicios registrados", tarjetasEj === 10, tarjetasEj);
-    const repsInputs = await page.$$('.ejercicio-entrenar-card[data-ejercicio-id="mu4c87ep2snsau-ej1"] .input-serie-reps');
+    const nombresEj = await page.$$eval(".ejercicio-entrenar-card .ejercicio-entrenar-header", (hs) => hs.map((h) => h.firstElementChild.textContent));
+    check("editar: ejercicios con mapping muestran el nombre real", nombresEj[0] === "DOMINADAS TOMA NEUTRA" && nombresEj[1] === "REMO T CON BARRA", nombresEj.slice(0, 3));
+    check("editar: ejercicios sin mapping conservan el texto de siempre", nombresEj.slice(2).every((n) => n === "Ejercicio eliminado de la rutina"), nombresEj.slice(2));
+    const repsInputs = await page.$$('.ejercicio-entrenar-card[data-ejercicio-id="mu4c87ep8spsdp"] .input-serie-reps');
     await repsInputs[1].fill("13");
     await page.click('[data-accion="guardar-sesion"]');
     const tras = await leerStorage(page);
@@ -98,7 +101,7 @@ const leerStorage = (page) => page.evaluate(() => JSON.parse(localStorage.getIte
     const orig = original.sesiones_entrenamiento.filter((s) => s.id === "h-1510")[0];
     check("guardar: conserva id, dia_rutina_id y ejercicio_id", editada && editada.dia_rutina_id === "mu4c87ep2snsau" &&
       JSON.stringify(editada.ejercicios_realizados.map((e) => e.ejercicio_id)) === JSON.stringify(orig.ejercicios_realizados.map((e) => e.ejercicio_id)), editada && editada.dia_rutina_id);
-    check("guardar: aplica el cambio de reps", editada.ejercicios_realizados[0].series[1].reps === 13, editada.ejercicios_realizados[0].series[1]);
+    check("guardar: aplica el cambio de reps", editada.ejercicios_realizados[1].series[1].reps === 13, editada.ejercicios_realizados[1].series[1]);
     const otrasIguales = tras.sesiones_entrenamiento.filter((s) => s.id !== "h-1510").every((s) => JSON.stringify(s) === JSON.stringify(original.sesiones_entrenamiento.filter((o) => o.id === s.id)[0]));
     check("guardar: el resto de las sesiones queda intacto", otrasIguales);
     const tarjetaEditada = (await leerTarjetas(page)).filter((x) => x.id === "h-1510")[0];

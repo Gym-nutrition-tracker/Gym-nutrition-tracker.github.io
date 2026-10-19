@@ -7,6 +7,25 @@ function sumarDias(iso, n) {
 }
 const serie = (p, reps) => reps.map((r) => ({ peso_kg: p, reps: r }));
 
+/* Ejercicios con IDs legacy reales del plan anterior (algunos), con
+   aproximación + series efectivas; *-ej1/*-ej2 quedan como IDs desconocidos. */
+const EJERCICIOS_LEGACY = {
+  "mu4c87ep730qj1": [
+    ["mu4c87epsr80xw", (i) => serie(40, [10]).concat(serie(60, [8, 8, 7 + (i % 2)]))],
+    ["mu4c87epqc4fa9", () => serie(20, [10, 10, 10])],
+    ["mu4c87epra2lxd", () => serie(90, [12]).concat(serie(105, [10, 10]))],
+    ["mu4c87epoowggf", () => serie(0, [15, 15, 12])]
+  ],
+  "mu4c87ep2snsau": [
+    ["mu4c87epd9q159", (i) => serie(0, [8, 7, 6 + (i % 2)])],
+    ["mu4c87ep8spsdp", () => serie(30, [10]).concat(serie(40, [10, 10, 9]))]
+  ],
+  "mu4c87eptjrn47": [
+    ["mu4c87epjry3ek", () => serie(18, [10]).concat(serie(22, [10, 10, 9]))],
+    ["mu4c87epbm1w7y", () => serie(50, [12, 12, 10])]
+  ]
+};
+
 function datasetHistoricos(opciones) {
   opciones = opciones || {};
   const ses = [];
@@ -58,10 +77,10 @@ function datasetHistoricos(opciones) {
       { id: "mu4c87ep241kdy", desde: "2026-09-16", semanas: 5 }
     ].forEach((h) => {
       for (let i = 0; i < h.semanas; i++) {
-        gym(sumarDias(h.desde, i * 7), h.id, 7, [
+        gym(sumarDias(h.desde, i * 7), h.id, 7, (EJERCICIOS_LEGACY[h.id] || []).map((e) => ({ id: e[0], series: e[1](i) })).concat([
           { id: h.id + "-ej1", series: serie(20, [10]).concat(serie(30, [10, 10, 9 + (i % 2)])) },
           { id: h.id + "-ej2", series: serie(15, [12, 12, 12]) }
-        ]);
+        ]));
       }
     });
   }

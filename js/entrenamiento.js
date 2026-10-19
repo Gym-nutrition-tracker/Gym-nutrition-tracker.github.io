@@ -475,7 +475,10 @@ GYMAPP.entrenamiento = (function () {
         var ejercicioRutina = buscarEjercicioEnRutina(data.rutina.dias, er.ejercicio_id);
         ejerciciosHistoricos.push({
           ejercicio_id: er.ejercicio_id,
-          etiqueta: ejercicioRutina ? (ejercicioRutina.nombre || "(sin nombre)") : "Ejercicio eliminado de la rutina",
+          /* Fuera de la rutina actual: nombre real si se conoce (módulo
+             compartido de rutinas históricas); si no, el texto de siempre. */
+          etiqueta: ejercicioRutina ? (ejercicioRutina.nombre || "(sin nombre)")
+            : (GYMAPP.rutinasHistoricas.nombreEjercicioConocido(data, er.ejercicio_id) || "Ejercicio eliminado de la rutina"),
           objetivo: ejercicioRutina ? (ejercicioRutina.series_objetivo + " × " + ejercicioRutina.reps_objetivo) : ""
         });
       });

@@ -1936,15 +1936,16 @@ GYMAPP.progreso = (function () {
     return historico ? historico.nombre : "";
   }
 
-  /* Los ejercicios que ya no están en la rutina comparten el texto
-     genérico "Ejercicio eliminado de la rutina"; para que sean
-     distinguibles se numeran por orden de aparición y se agrega su carga
-     máxima real registrada en ese bloque. Solo cambia la etiqueta visible. */
+  /* Los ejercicios que ya no están en este bloque de la rutina llegan con
+     el texto genérico "Ejercicio eliminado de la rutina". Su nombre se
+     resuelve en el módulo compartido (rutina actual -> historial
+     persistido futuro -> mapa legacy -> "Ejercicio anterior") y se agrega
+     su carga máxima real registrada en ese bloque. Si dos etiquetas
+     quedan iguales, se numeran con (2), (3)... Solo cambia la etiqueta. */
   function distinguirEjerciciosEliminados(data, bloqueId, opciones) {
-    var n = 0;
+    var vistas = {};
     return opciones.map(function (o) {
       if (o.nombre !== "Ejercicio eliminado de la rutina") return o;
-      n += 1;
       var cargaMaxima = 0;
       data.sesiones_entrenamiento.forEach(function (sesion) {
         if (sesion.tipo !== "gimnasio" || sesion.dia_rutina_id !== bloqueId) return;
@@ -1953,7 +1954,11 @@ GYMAPP.progreso = (function () {
           (er.series || []).forEach(function (serie) { cargaMaxima = Math.max(cargaMaxima, Number(serie.peso_kg) || 0); });
         });
       });
-      return { id: o.id, nombre: "Ejercicio anterior " + n + " · " + (cargaMaxima > 0 ? "máx. " + formatearKg(cargaMaxima) : "peso corporal") };
+      var nombre = GYMAPP.rutinasHistoricas.resolverNombreEjercicioHistorico(data, o.id) + " · " +
+        (cargaMaxima > 0 ? "máx. " + formatearKg(cargaMaxima) : "peso corporal");
+      vistas[nombre] = (vistas[nombre] || 0) + 1;
+      if (vistas[nombre] > 1) nombre += " (" + vistas[nombre] + ")";
+      return { id: o.id, nombre: nombre };
     });
   }
 

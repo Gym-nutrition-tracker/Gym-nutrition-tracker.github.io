@@ -1,9 +1,18 @@
 /* Historial de Entrenar: sesiones del plan anterior (IDs legacy reales),
    una del plan actual, una de un bloque histórico desconocido y fútbol. */
+/* Primeros ejercicios de cada día legacy con sus IDs reales del plan
+   anterior; el resto (dia-ejN) quedan como IDs desconocidos. */
+const IDS_REALES = {
+  "mu4c87ep730qj1": ["mu4c87epsr80xw", "mu4c87epra2lxd"],
+  "mu4c87ep2snsau": ["mu4c87epd9q159", "mu4c87ep8spsdp"],
+  "mu4c87eptjrn47": ["mu4c87epjry3ek", "mu4c87epbm1w7y"]
+};
+
 function sesionGym(id, fechaISO, dia, cantidadEjercicios, rpe) {
   const ejercicios = [];
   for (let i = 1; i <= cantidadEjercicios; i++) {
-    ejercicios.push({ ejercicio_id: dia + "-ej" + i, series: [{ peso_kg: 20, reps: 10 }, { peso_kg: 25 + i, reps: 12 }, { peso_kg: 25 + i, reps: 11 }] });
+    const real = (IDS_REALES[dia] || [])[i - 1];
+    ejercicios.push({ ejercicio_id: real || dia + "-ej" + i, series: [{ peso_kg: 20, reps: 10 }, { peso_kg: 25 + i, reps: 12 }, { peso_kg: 25 + i, reps: 11 }] });
   }
   return { id, fecha: fechaISO + "T18:30:00", tipo: "gimnasio", dia_rutina_id: dia, duracion_min: 70, rpe: rpe || 8, notas: "", ejercicios_realizados: ejercicios, futbol_detalle: null };
 }
