@@ -113,6 +113,14 @@ async function recorrer(browser, url) {
 
   await page.click("#btn-rutina");
   html.rutina = await page.evaluate(() => document.getElementById("tab-content").innerHTML);
+  /* E4: Rutina sin la tarjeta del plan activo ni el contenedor del modal,
+     para comparar contra versiones anteriores a E4. */
+  const rutina = await page.evaluate(() => {
+    const c = document.getElementById("tab-content").cloneNode(true);
+    const tenia = !!c.querySelector(".plan-activo-card");
+    c.querySelectorAll(".plan-activo-card, #rutina-modal").forEach((n) => n.remove());
+    return { tenia, sinPlan: c.innerHTML };
+  });
   const almacenado = await page.evaluate(() => localStorage.getItem("gymNutritionTracker"));
   const claves = await page.evaluate(() => Object.keys(localStorage).sort());
   const pre = await page.evaluate(() => localStorage.getItem("gymNutritionTracker_preMigracionV3"));
@@ -120,7 +128,7 @@ async function recorrer(browser, url) {
   /* E2: el dato sembrado es schema 2; al abrir la app se migra una sola vez a
      schema 3 (con su copia previa) y después nada más lo modifica. */
   const sinCambios = almacenado === JSON.stringify(aV3(JSON.parse(datos)));
-  return { html, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios, claves, preCrudo: pre ? JSON.parse(pre).data_raw === datos : false };
+  return { html, rutina, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios, claves, preCrudo: pre ? JSON.parse(pre).data_raw === datos : false };
 }
 
 (async () => {
@@ -146,7 +154,12 @@ async function recorrer(browser, url) {
     check("sin otras claves en localStorage", JSON.stringify(nuevo.claves) === JSON.stringify(["gymNutritionTracker", "gymNutritionTracker_preMigracionV3"]), nuevo.claves);
     if (srvBase) {
       const base = await recorrer(browser, "http://127.0.0.1:" + srvBase.address().port);
-      ["dashboard", "entrenar", "nutricion", "rutina"].forEach((t) => check("HTML idéntico a la versión base: " + t, nuevo.html[t] === base.html[t]));
+      ["dashboard", "entrenar", "nutricion"].forEach((t) => check("HTML idéntico a la versión base: " + t, nuevo.html[t] === base.html[t]));
+      if (base.rutina.tenia) {
+        check("HTML idéntico a la versión base: rutina", nuevo.html.rutina === base.html.rutina);
+      } else {
+        check("Rutina idéntica a la base salvo la tarjeta del plan activo (E4)", nuevo.rutina.tenia && nuevo.rutina.sinPlan === base.html.rutina);
+      }
       if (base.progreso.existe) {
         /* Base que ya tiene PROG-04 (por ejemplo, HEAD): Progreso completo idéntico. */
         check("Progreso idéntico a la base (completo, con panel)", nuevo.html.progreso === base.html.progreso);

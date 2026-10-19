@@ -1986,3 +1986,186 @@ body {
   font-size: 0.68rem;
   color: var(--color-texto-secundario);
 }
+
+/* E4: tarjeta del plan activo y modal de planes (Rutina). */
+.plan-activo-card {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-left: 3px solid var(--color-primario);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.plan-etiqueta {
+  margin: 0 0 2px;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-celeste);
+}
+
+.plan-nombre {
+  margin: 0 0 4px;
+  font-family: var(--fuente-titulos);
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.plan-vigencia,
+.plan-semana {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-texto-secundario);
+}
+
+.plan-semana {
+  margin-top: 2px;
+  color: var(--color-texto);
+}
+
+.plan-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.plan-acciones .btn-secundario {
+  flex: 1;
+}
+
+body.modal-abierto {
+  overflow: hidden;
+}
+
+.modal-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--color-fondo);
+  border: 1px solid var(--color-borde);
+  border-radius: 14px 14px 0 0;
+  padding: 14px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.modal:focus {
+  outline: none;
+}
+
+@media (min-width: 560px) {
+  .modal-fondo {
+    align-items: center;
+  }
+
+  .modal {
+    border-radius: 14px;
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
+}
+
+.modal-cuerpo .nota {
+  margin: 0 0 4px;
+}
+
+.modal-acciones {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.modal-acciones .btn-secundario {
+  flex: 1;
+}
+
+.btn-guardar-plan {
+  background: var(--color-primario);
+  border-color: var(--color-primario);
+  color: var(--color-primario-contraste);
+}
+
+.modal .btn-enlace {
+  width: auto;
+  margin: 0 0 8px;
+  text-align: left;
+}
+
+.plan-historico-card {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.plan-historico-card .btn-secundario {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.plan-actividad {
+  font-style: italic;
+}
+
+.plan-dia {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.plan-dia summary {
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.plan-ejercicios {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 6px;
+}
+
+.plan-ejercicio {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 0;
+  border-top: 1px solid var(--color-borde);
+}
+
+.plan-ejercicio-nombre {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.plan-ejercicio-dato {
+  font-size: 0.82rem;
+  color: var(--color-texto-secundario);
+}

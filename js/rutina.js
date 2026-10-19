@@ -6,14 +6,21 @@ GYMAPP.rutina = (function () {
 
   function render(container) {
     var data = GYMAPP.storage.getData();
-    container.innerHTML = template(GYMAPP.planes.diasDelPlanActivo(data), data.usuario);
+    cerrarModal(container, { sinFoco: true });
+    container.innerHTML = template(data, hoyISO());
     if (!container.dataset.rutinaBound) {
       bindEventos(container);
       container.dataset.rutinaBound = "1";
     }
   }
 
-  function template(dias, usuario) {
+  function hoyISO() {
+    return GYMAPP.util.fechaLocalISO(new Date());
+  }
+
+  function template(data, hoy) {
+    var dias = GYMAPP.planes.diasDelPlanActivo(data);
+    var usuario = data.usuario;
     var listaDias = dias.length
       ? dias.map(renderDia).join("")
       : '<p class="nota">Todavía no tenés días cargados. Agregá uno manualmente o importá el PDF de tu rutina.</p>';
@@ -29,6 +36,7 @@ GYMAPP.rutina = (function () {
       "</div>" +
       "</div>" +
       '<div id="rutina-mensaje" class="mensaje oculto"></div>' +
+      renderTarjetaPlanActivo(data, hoy) +
       '<div class="rutina-dias">' + listaDias + "</div>" +
       '<datalist id="grupos-musculares">' +
       GRUPOS_MUSCULARES.map(function (g) { return '<option value="' + g + '"></option>'; }).join("") +
@@ -37,8 +45,229 @@ GYMAPP.rutina = (function () {
       (GYMAPP.auth ? GYMAPP.auth.renderSeccionCuenta() : "") +
       (GYMAPP.sync ? GYMAPP.sync.renderSeccionSincronizacion() : "") +
       renderSeccionBackup() +
+      '<div id="rutina-modal"></div>' +
       "</div>"
     );
+  }
+
+  /* --- E4: plan activo e historial de planes ---
+     Solo presentación: nada de esto escribe datos salvo "Guardar" en Editar
+     plan, que pasa por GYMAPP.planes.actualizarMetadataPlanActivo dentro de
+     storage.updateData. Los planes históricos son de solo lectura. */
+
+  var NOMBRE_PLAN_ACTIVO_DEFAULT = "Plan actual";
+  var NOMBRE_PLAN_SIN_NOMBRE = "Plan sin nombre";
+  var ORIGENES = { legacy: "Histórico", migracion: "Migrado de la versión anterior" };
+
+  /* "YYYY-MM-DD" → "DD/MM/YYYY" (sin Date: no hay corrimiento de zona). */
+  function formatearFecha(iso) {
+    if (!GYMAPP.planes.esFechaValida(iso)) return null;
+    var p = iso.split("-");
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
+
+  /* escapeHtml no escapa comillas (usa innerHTML); dentro de un atributo
+     hace falta. */
+  function escaparAtributo(v) {
+    return GYMAPP.util.escapeHtml(v).replace(/"/g, "&quot;");
+  }
+
+  function nombrePlan(plan, porDefecto) {
+    return plan && typeof plan.nombre === "string" && plan.nombre.trim() ? plan.nombre.trim() : porDefecto;
+  }
+
+  function textoVigencia(plan) {
+    var inicio = formatearFecha(plan && plan.fecha_inicio);
+    var fin = formatearFecha(plan && plan.fecha_fin);
+    if (inicio && fin) return inicio + " – " + fin;
+    if (inicio) return "Desde " + inicio;
+    if (fin) return "Hasta " + fin;
+    return "Sin fechas definidas";
+  }
+
+  /* Línea informativa de semana/estado (no se usa en PROG-04). */
+  function textoEstadoTemporal(plan, hoy) {
+    var t = GYMAPP.planes.calcularEstadoTemporalPlan(plan, hoy);
+    if (t.estado === "futuro") return "Comienza el " + formatearFecha(plan.fecha_inicio);
+    if (t.estado === "finalizado") return "Plan finalizado";
+    if (t.estado === "vigente" && t.semana_actual !== null) {
+      return "Semana " + t.semana_actual + (t.semanas_totales !== null ? " de " + t.semanas_totales : "");
+    }
+    return null;
+  }
+
+  function renderTarjetaPlanActivo(data, hoy) {
+    var plan = GYMAPP.planes.planActivo(data);
+    if (!plan) return "";
+    var estado = textoEstadoTemporal(plan, hoy);
+    var esc = GYMAPP.util.escapeHtml;
+    return (
+      '<section class="plan-activo-card" aria-labelledby="plan-activo-nombre">' +
+      '<p class="plan-etiqueta">Plan activo</p>' +
+      '<h3 id="plan-activo-nombre" class="plan-nombre">' + esc(nombrePlan(plan, NOMBRE_PLAN_ACTIVO_DEFAULT)) + "</h3>" +
+      '<p class="plan-vigencia">' + esc(textoVigencia(plan)) + "</p>" +
+      (estado ? '<p class="plan-semana">' + esc(estado) + "</p>" : "") +
+      '<div class="plan-acciones">' +
+      '<button type="button" data-accion="editar-plan" class="btn-secundario">Editar plan</button>' +
+      '<button type="button" data-accion="historial-planes" class="btn-secundario">Historial de planes</button>' +
+      "</div>" +
+      "</section>"
+    );
+  }
+
+  function envolverModal(titulo, cuerpo) {
+    return (
+      '<div class="modal-fondo">' +
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo" tabindex="-1">' +
+      '<div class="modal-header">' +
+      '<h3 id="modal-titulo">' + GYMAPP.util.escapeHtml(titulo) + "</h3>" +
+      '<button type="button" data-accion="cerrar-modal" class="btn-icono" aria-label="Cerrar">✕</button>' +
+      "</div>" +
+      '<div class="modal-cuerpo">' + cuerpo + "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderModalEditarPlan(data) {
+    var plan = GYMAPP.planes.planActivo(data);
+    var esc = GYMAPP.util.escapeHtml;
+    var valor = function (v) { return escaparAtributo(typeof v === "string" ? v : ""); };
+    return envolverModal("Editar plan",
+      '<form id="form-editar-plan" class="form-plan" novalidate>' +
+      '<div class="campo"><label for="plan-nombre">Nombre del plan</label>' +
+      '<input id="plan-nombre" name="nombre" type="text" maxlength="80" autocomplete="off" placeholder="' + NOMBRE_PLAN_ACTIVO_DEFAULT + '" value="' + valor(plan.nombre) + '" /></div>' +
+      '<div class="campo"><label for="plan-fecha-inicio">Fecha de inicio</label>' +
+      '<input id="plan-fecha-inicio" name="fecha_inicio" type="date" value="' + valor(plan.fecha_inicio) + '" /></div>' +
+      '<div class="campo"><label for="plan-fecha-fin">Fecha de fin</label>' +
+      '<input id="plan-fecha-fin" name="fecha_fin" type="date" value="' + valor(plan.fecha_fin) + '" /></div>' +
+      '<p class="nota">Todos los campos son opcionales. Acá solo se cambian el nombre y las fechas; los días y ejercicios se editan en la rutina.</p>' +
+      '<div id="plan-form-error" class="mensaje error oculto" role="alert"></div>' +
+      '<div class="modal-acciones">' +
+      '<button type="button" data-accion="cerrar-modal" class="btn-secundario">Cancelar</button>' +
+      '<button type="submit" class="btn-secundario btn-guardar-plan">Guardar</button>' +
+      "</div>" +
+      "</form>");
+  }
+
+  function contarEjercicios(plan) {
+    return plan.dias.reduce(function (n, d) { return n + ((d && d.ejercicios) || []).length; }, 0);
+  }
+
+  function plural(n, uno, varios) {
+    return n + " " + (n === 1 ? uno : varios);
+  }
+
+  function renderModalHistorialPlanes(data) {
+    var esc = GYMAPP.util.escapeHtml;
+    var planes = GYMAPP.planes.planesHistoricos(data);
+    var cuerpo = planes.length ? planes.map(function (plan) {
+      var sesiones = GYMAPP.planes.cantidadSesionesPlan(data, plan.plan_id);
+      var rango = GYMAPP.planes.rangoObservadoPlan(data, plan.plan_id);
+      return (
+        '<div class="plan-historico-card">' +
+        '<p class="plan-nombre">' + esc(nombrePlan(plan, NOMBRE_PLAN_SIN_NOMBRE)) + "</p>" +
+        '<p class="nota">Origen: ' + esc(ORIGENES[plan.origen] || "Histórico") + "</p>" +
+        '<p class="nota">' + esc(textoVigencia(plan)) + "</p>" +
+        '<p class="nota">' + plural(plan.dias.length, "día", "días") + " · " + plural(contarEjercicios(plan), "ejercicio", "ejercicios") +
+        " · " + plural(sesiones, "sesión registrada", "sesiones registradas") + "</p>" +
+        (rango ? '<p class="nota plan-actividad">Actividad observada: ' + formatearFecha(rango.desde) + " – " + formatearFecha(rango.hasta) + "</p>" : "") +
+        '<button type="button" data-accion="ver-plan" data-plan-id="' + escaparAtributo(plan.plan_id) + '" class="btn-secundario">Ver</button>' +
+        "</div>"
+      );
+    }).join("") : '<p class="nota">Todavía no hay planes anteriores.</p>';
+    return envolverModal("Historial de planes",
+      '<p class="nota">Planes anteriores, solo para consulta. No se pueden editar ni volver a usar para entrenar.</p>' + cuerpo);
+  }
+
+  function textoPrescripcion(ej) {
+    var series = ej.series_objetivo !== null && ej.series_objetivo !== undefined && ej.series_objetivo !== "" ? String(ej.series_objetivo) : "";
+    var reps = ej.reps_objetivo !== null && ej.reps_objetivo !== undefined ? String(ej.reps_objetivo) : "";
+    if (series && reps) return series + " × " + reps;
+    if (series) return series + " series";
+    return reps;
+  }
+
+  function renderModalDetallePlan(data, planId) {
+    var esc = GYMAPP.util.escapeHtml;
+    var plan = GYMAPP.planes.buscarPlan(data, planId);
+    if (!plan || planId === data.rutina.plan_activo_id) return renderModalHistorialPlanes(data);
+    var dias = plan.dias.map(function (dia) {
+      var ejercicios = (dia.ejercicios || []).map(function (ej) {
+        var prescripcion = textoPrescripcion(ej);
+        return (
+          '<li class="plan-ejercicio">' +
+          '<span class="plan-ejercicio-nombre">' + esc(ej.nombre || "(sin nombre)") + "</span>" +
+          (prescripcion ? '<span class="plan-ejercicio-dato">' + esc(prescripcion) + "</span>" : "") +
+          (ej.grupo_muscular ? '<span class="plan-ejercicio-dato">' + esc(ej.grupo_muscular) + "</span>" : "") +
+          "</li>"
+        );
+      }).join("");
+      return (
+        '<details class="plan-dia">' +
+        "<summary>" + esc(dia.nombre || "(sin nombre)") + ' <span class="nota">· ' + plural((dia.ejercicios || []).length, "ejercicio", "ejercicios") + "</span></summary>" +
+        '<ul class="plan-ejercicios">' + ejercicios + "</ul>" +
+        "</details>"
+      );
+    }).join("");
+    return envolverModal(nombrePlan(plan, NOMBRE_PLAN_SIN_NOMBRE),
+      '<button type="button" data-accion="historial-planes" class="btn-enlace">← Historial de planes</button>' +
+      '<p class="nota">' + esc(textoVigencia(plan)) + " · Solo lectura</p>" +
+      dias);
+  }
+
+  /* Abre (o reemplaza) el modal. `disparador` recibe el foco al cerrar. */
+  function abrirModal(container, html, disparador) {
+    var destino = container.querySelector("#rutina-modal");
+    if (!destino) return;
+    if (!destino.innerHTML && disparador) destino.dataset.disparador = disparador;
+    destino.innerHTML = html;
+    document.body.classList.add("modal-abierto");
+    var foco = destino.querySelector("input") || destino.querySelector(".modal");
+    if (foco) foco.focus();
+  }
+
+  function cerrarModal(container, opciones) {
+    var destino = container.querySelector("#rutina-modal");
+    if (document.body) document.body.classList.remove("modal-abierto");
+    if (!destino || !destino.innerHTML) return;
+    var disparador = destino.dataset.disparador;
+    destino.innerHTML = "";
+    delete destino.dataset.disparador;
+    if (!(opciones && opciones.sinFoco) && disparador) {
+      var boton = container.querySelector('[data-accion="' + disparador + '"]');
+      if (boton) boton.focus();
+    }
+  }
+
+  function guardarMetadataPlan(container, form) {
+    var errorEl = form.querySelector("#plan-form-error");
+    var v = GYMAPP.planes.validarMetadataPlan({
+      nombre: form.querySelector("#plan-nombre").value,
+      fecha_inicio: form.querySelector("#plan-fecha-inicio").value,
+      fecha_fin: form.querySelector("#plan-fecha-fin").value
+    });
+    if (!v.ok) {
+      mostrarMensajeEn(errorEl, v.error, "error");
+      return;
+    }
+    var actual = GYMAPP.planes.planActivo(GYMAPP.storage.getData());
+    var sinCambios = ["nombre", "fecha_inicio", "fecha_fin"].every(function (k) { return (actual[k] === undefined ? null : actual[k]) === v.valores[k]; });
+    if (sinCambios) {
+      cerrarModal(container);
+      return;
+    }
+    var resultado = GYMAPP.storage.updateData(function (data) {
+      GYMAPP.planes.actualizarMetadataPlanActivo(data, v.valores);
+    }, { alertaAutomatica: false });
+    if (!resultado.guardado) {
+      mostrarMensajeEn(errorEl, MENSAJE_ERROR_GUARDADO, "error");
+      return;
+    }
+    render(container);
+    mostrarMensaje(container, "Plan actualizado.", "exito");
+    var boton = container.querySelector('[data-accion="editar-plan"]');
+    if (boton) boton.focus();
   }
 
   /* ACT-02: sección "Actividades y metas" para usuarios existentes. Permite
@@ -106,11 +335,23 @@ GYMAPP.rutina = (function () {
 
   function bindEventos(container) {
     container.addEventListener("click", function (ev) {
+      if (ev.target.classList && ev.target.classList.contains("modal-fondo")) {
+        cerrarModal(container);
+        return;
+      }
       var boton = ev.target.closest("[data-accion]");
       if (!boton) return;
       var accion = boton.dataset.accion;
 
-      if (accion === "nuevo-dia") {
+      if (accion === "editar-plan") {
+        abrirModal(container, renderModalEditarPlan(GYMAPP.storage.getData()), "editar-plan");
+      } else if (accion === "historial-planes") {
+        abrirModal(container, renderModalHistorialPlanes(GYMAPP.storage.getData()), "historial-planes");
+      } else if (accion === "ver-plan") {
+        abrirModal(container, renderModalDetallePlan(GYMAPP.storage.getData(), boton.dataset.planId));
+      } else if (accion === "cerrar-modal") {
+        cerrarModal(container);
+      } else if (accion === "nuevo-dia") {
         agregarDia(container);
       } else if (accion === "borrar-dia") {
         borrarDia(container, boton.dataset.diaId);
@@ -127,7 +368,19 @@ GYMAPP.rutina = (function () {
       }
     });
 
+    container.addEventListener("submit", function (ev) {
+      if (ev.target.id !== "form-editar-plan") return;
+      ev.preventDefault();
+      guardarMetadataPlan(container, ev.target);
+    });
+
+    /* Escape cierra el modal si la pantalla de Rutina sigue visible. */
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && container.querySelector("#rutina-modal .modal")) cerrarModal(container);
+    });
+
     container.addEventListener("change", function (ev) {
+      if (ev.target.closest && ev.target.closest("#rutina-modal")) return;
       if (ev.target.id === "input-pdf-rutina") {
         var file = ev.target.files[0];
         ev.target.value = "";
@@ -373,5 +626,13 @@ GYMAPP.rutina = (function () {
     lector.readAsText(file);
   }
 
-  return { render: render };
+  return {
+    render: render,
+    /* Expuestas para tests (presentación pura, sin escrituras). */
+    renderTarjetaPlanActivo: renderTarjetaPlanActivo,
+    renderModalEditarPlan: renderModalEditarPlan,
+    renderModalHistorialPlanes: renderModalHistorialPlanes,
+    renderModalDetallePlan: renderModalDetallePlan,
+    textoVigencia: textoVigencia
+  };
 })();
