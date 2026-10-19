@@ -1857,41 +1857,11 @@ GYMAPP.progreso = (function () {
     return data.rutina.dias.map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
   }
 
-  /* COMPATIBILIDAD LEGACY (TEMPORAL): nombres de los 5 días del plan
-     anterior, recuperados del backup previo, indexados por su
-     dia_rutina_id real. Es el ÚNICO lugar con IDs históricos hardcodeados.
-     Solo se usa para mostrar un nombre: nunca modifica sesiones ni IDs.
-     El orden es el del plan original y define el orden del selector.
-     Se reemplaza en PROG-04.1 / schema 3 por un historial formal de planes
-     (snapshot de días y ejercicios); entonces este mapa se elimina. */
-  var NOMBRES_BLOQUES_LEGACY = [
-    { id: "mu4c87ep730qj1", nombre: "EMPUJE" },
-    { id: "mu4c87ep241kdy", nombre: "PIERNAS (ENFOQUE EN CUADRICEPS)" },
-    { id: "mu4c87ep2snsau", nombre: "TRACCIÓN" },
-    { id: "mu4c87epiiepiq", nombre: "PIERNAS (ENFOQUE EN ISQUIOS)" },
-    { id: "mu4c87eptjrn47", nombre: "TREN SUPERIOR" }
-  ];
-
-  /* Nombre persistido de un bloque histórico. Hoy el storage no guarda
-     ningún snapshot de rutinas anteriores, así que siempre devuelve null;
-     es el punto de entrada donde PROG-04.1 / schema 3 va a leer el nombre
-     real desde el historial formal de planes. */
-  function nombreBloqueDesdeHistorialPersistido(data, diaRutinaId) {
-    return null;
-  }
-
-  /* Resolución central del nombre de un bloque histórico, en orden:
-     1. historial persistido (futuro);
-     2. mapa de compatibilidad legacy;
-     3. null -> quien llama usa el fallback por fechas reales.
-     Devuelve { nombre, orden } (orden solo para los legacy). */
+  /* El nombre de un bloque histórico (historial persistido futuro o mapa
+     legacy temporal) se resuelve en un único lugar compartido con
+     Entrenar: js/rutinasHistoricas.js. */
   function resolverNombreBloqueHistorico(data, diaRutinaId) {
-    var persistido = nombreBloqueDesdeHistorialPersistido(data, diaRutinaId);
-    if (persistido) return { nombre: persistido, orden: null };
-    for (var i = 0; i < NOMBRES_BLOQUES_LEGACY.length; i++) {
-      if (NOMBRES_BLOQUES_LEGACY[i].id === diaRutinaId) return { nombre: NOMBRES_BLOQUES_LEGACY[i].nombre, orden: i };
-    }
-    return null;
+    return GYMAPP.rutinasHistoricas.resolverNombreBloqueHistorico(data, diaRutinaId);
   }
 
   function construirOpcionesBloquesHistoricos(data) {

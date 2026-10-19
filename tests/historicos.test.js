@@ -232,6 +232,8 @@ test("legacy: 0 escrituras, sesiones e IDs intactos, schema 2, sin sync", () => 
   assert.equal(guardado.schema_version, 2);
   assert.equal(e.GYMAPP.storage.getDefaultData().schema_version, 2);
   assert.equal(e.nube.llamadas.length, 0);
-  const fuente = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", "progreso.js"), "utf8");
-  assert.equal((fuente.match(/mu4c87/g) || []).length, 5, "los IDs legacy están solo en el mapa central");
+  const leer = (f) => require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "js", f), "utf8");
+  assert.equal((leer("rutinasHistoricas.js").match(/mu4c87/g) || []).length, 5, "los IDs legacy están solo en el mapa central");
+  assert.equal((leer("progreso.js").match(/mu4c87/g) || []).length, 0);
+  assert.equal((leer("entrenamiento.js").match(/mu4c87/g) || []).length, 0);
 });

@@ -240,7 +240,7 @@ GYMAPP.entrenamiento = (function () {
      reconstruirla con otros ejercicios, y eso es justamente lo que no
      queremos hacer al editar un registro histórico. */
   function renderGimnasioEdicion(estado) {
-    var nombreDia = estado.nombreDiaHistorico || "Día ya no existe en la rutina";
+    var nombreDia = estado.nombreDiaHistorico || GYMAPP.rutinasHistoricas.NOMBRE_BLOQUE_DESCONOCIDO;
     var html = '<div class="campo"><label>Día de rutina</label><p class="nota">' + GYMAPP.util.escapeHtml(nombreDia) + "</p></div>";
 
     if (!estado.ejerciciosHistoricos.length) {
@@ -403,20 +403,21 @@ GYMAPP.entrenamiento = (function () {
       '<div class="seccion-historial">' +
       "<h3>Historial de sesiones</h3>" +
       '<div class="historial-lista">' +
-      ordenadas.map(function (s) { return renderItemHistorial(s, data.rutina.dias); }).join("") +
+      ordenadas.map(function (s) { return renderItemHistorial(s, data); }).join("") +
       "</div>" +
       "</div>"
     );
   }
 
-  function renderItemHistorial(sesion, dias) {
+  function renderItemHistorial(sesion, data) {
     var fechaLegible = formatearFechaHistorial(GYMAPP.util.fechaLocalISO(sesion.fecha));
     var resumen;
 
     if (sesion.tipo === "gimnasio") {
-      var dia = buscarDia(dias, sesion.dia_rutina_id);
+      /* Bloque activo -> su nombre actual; bloque histórico -> nombre
+         real si se conoce (historial/legacy), si no "Bloque anterior". */
       var cantidad = (sesion.ejercicios_realizados || []).length;
-      resumen = "🏋️ " + (dia ? GYMAPP.util.escapeHtml(dia.nombre) : "Día ya no existe en la rutina") +
+      resumen = "🏋️ " + GYMAPP.util.escapeHtml(GYMAPP.rutinasHistoricas.resolverNombreDiaRutina(data, sesion.dia_rutina_id)) +
         " · " + cantidad + (cantidad === 1 ? " ejercicio" : " ejercicios");
     } else {
       resumen = resumenSesionNoGimnasio(sesion);
@@ -465,7 +466,6 @@ GYMAPP.entrenamiento = (function () {
   function cargarParaEditar(sesion, data) {
     var seriesPorEjercicio = {};
     var ejerciciosHistoricos = [];
-    var dia = sesion.dia_rutina_id ? buscarDia(data.rutina.dias, sesion.dia_rutina_id) : null;
 
     if (sesion.tipo === "gimnasio") {
       (sesion.ejercicios_realizados || []).forEach(function (er) {
@@ -492,7 +492,8 @@ GYMAPP.entrenamiento = (function () {
       fecha: GYMAPP.util.fechaLocalISO(sesion.fecha),
       tipo: sesion.tipo,
       diaRutinaId: sesion.dia_rutina_id || "",
-      nombreDiaHistorico: dia ? dia.nombre : null,
+      /* Solo informativo (el día de una sesión histórica no se edita). */
+      nombreDiaHistorico: sesion.dia_rutina_id ? GYMAPP.rutinasHistoricas.resolverNombreDiaRutina(data, sesion.dia_rutina_id) : null,
       seriesPorEjercicio: seriesPorEjercicio,
       ejerciciosHistoricos: ejerciciosHistoricos,
       duracion_min: sesion.duracion_min != null ? String(sesion.duracion_min) : "",
@@ -825,5 +826,9 @@ GYMAPP.entrenamiento = (function () {
     mostrarMensaje(container, esEdicion ? "Cambios guardados." : "Sesión guardada. ¡Buen trabajo!", "exito");
   }
 
-  return { render: render };
+  return {
+    render: render,
+    /* Expuesta para pruebas del historial de sesiones (solo arma HTML). */
+    renderHistorial: renderHistorial
+  };
 })();

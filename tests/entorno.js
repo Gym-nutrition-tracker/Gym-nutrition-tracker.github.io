@@ -158,6 +158,7 @@ function crearEntorno(opciones) {
   };
   cargar("js/util.js");
   cargar("js/storage.js");
+  cargar("js/rutinasHistoricas.js");
 
   const auth = { sesion: null, eventos: null, llamadas: [] };
   if (opciones.authReal) {
