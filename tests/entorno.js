@@ -133,7 +133,29 @@ function crearEntorno(opciones) {
   ctx.window = ctx;
   vm.createContext(ctx);
 
-  const cargar = (archivo) => vm.runInContext(fs.readFileSync(path.join(RAIZ, archivo), "utf8"), ctx, { filename: archivo });
+  /* Reloj fijo opcional: `new Date()` y `Date.now()` sin argumentos
+     devuelven siempre `opciones.ahora`, para que las funciones existentes
+     que usan "hoy" (semana actual, rachas) sean deterministas en tests. */
+  if (opciones.ahora) {
+    vm.runInContext(
+      "(function (fijo) {" +
+      "  var R = Date;" +
+      "  function D() { if (!new.target) return new R(fijo).toString();" +
+      "    return arguments.length ? new (Function.prototype.bind.apply(R, [null].concat([].slice.call(arguments))))() : new R(fijo); }" +
+      "  D.prototype = R.prototype; D.now = function () { return fijo; }; D.UTC = R.UTC; D.parse = R.parse;" +
+      "  Date = D;" +
+      "})(" + new Date(opciones.ahora).getTime() + ");",
+      ctx
+    );
+  }
+
+  /* Permite reemplazar cualquier módulo por otra versión (por ejemplo, la
+     de HEAD) con variables de entorno: SYNC_JS, PROGRESO_JS, ... */
+  const cargar = (archivo) => {
+    const variable = path.basename(archivo, ".js").toUpperCase() + "_JS";
+    const origen = process.env[variable] ? path.resolve(RAIZ, process.env[variable]) : path.join(RAIZ, archivo);
+    vm.runInContext(fs.readFileSync(origen, "utf8"), ctx, { filename: archivo });
+  };
   cargar("js/util.js");
   cargar("js/storage.js");
 
@@ -158,12 +180,8 @@ function crearEntorno(opciones) {
       obtenerSesion: () => auth.sesion
     };
   }
-  /* SYNC_JS permite correr la misma regresión contra otra versión del
-     archivo (por ejemplo, la de HEAD) para comparar. */
-  if (opciones.sinSync !== true) {
-    const archivoSync = process.env.SYNC_JS || "js/sync.js";
-    vm.runInContext(fs.readFileSync(path.resolve(RAIZ, archivoSync), "utf8"), ctx, { filename: "js/sync.js" });
-  }
+  if (opciones.sinSync !== true) cargar("js/sync.js");
+  (opciones.modulos || []).forEach(cargar);
 
   return {
     ctx, GYMAPP: ctx.GYMAPP, localStorage, nube, registro, respuestas, auth, cargar,

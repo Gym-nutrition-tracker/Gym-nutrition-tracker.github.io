@@ -976,6 +976,75 @@ body {
   margin-top: 10px;
 }
 
+/* PROG-04: "Estado del plan" reutiliza analisis-badge; neutro solo para
+   "Datos insuficientes". */
+.analisis-badge-neutro {
+  background: rgba(244, 246, 250, 0.08);
+  color: var(--color-texto-secundario);
+}
+
+.estado-plan-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.estado-plan-cabecera .analisis-badge {
+  margin-top: 0;
+}
+
+.estado-plan-chip {
+  padding: 4px 9px;
+  border: 1px solid var(--color-borde);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--color-texto-secundario);
+}
+
+.estado-plan-contexto {
+  margin-top: 10px;
+}
+
+.estado-plan-motivos {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+}
+
+.estado-plan-motivos li + li {
+  margin-top: 4px;
+}
+
+.estado-plan-sugerencia {
+  margin-top: 10px;
+}
+
+.estado-plan-senales {
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.estado-plan-senales summary {
+  cursor: pointer;
+  color: var(--color-texto-secundario);
+}
+
+.estado-plan-senales ul {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+}
+
+.estado-plan-senales li + li {
+  margin-top: 4px;
+}
+
+.estado-plan-nota {
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+
 /* PROG-02: "Próxima sesión" reutiliza la tarjeta y los colores de badge de
    "Análisis semanal" (analisis-semana-actual/analisis-stats/analisis-badge);
    esto es solo el espaciado entre las notas propias de la recomendación. */

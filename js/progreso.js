@@ -63,6 +63,9 @@ GYMAPP.progreso = (function () {
 
   function template(data, opcionesBloquesEvolucion, opcionesEjerciciosEvolucion, rachas) {
     var sesiones = data.sesiones_entrenamiento;
+    /* PROG-04: la fecha de hoy se resuelve acá (render), nunca dentro de
+       la función pura de decisión. */
+    var estadoPlan = calcularEstadoPlan(construirInputEstadoPlan(data, GYMAPP.util.fechaLocalISO(new Date())));
 
     return (
       '<div class="pantalla pantalla-progreso">' +
@@ -71,8 +74,9 @@ GYMAPP.progreso = (function () {
       '<div class="progreso-layout">' +
       '<div class="progreso-columna-principal">' +
       renderSeccionEvolucion(opcionesBloquesEvolucion, opcionesEjerciciosEvolucion) +
+      renderSeccionEstadoPlan(estadoPlan) +
       renderSeccionAnalisisSemanal(data) +
-      renderSeccionProximaSesion(data) +
+      renderSeccionProximaSesion(data, estadoPlan) +
       "</div>" +
       '<div class="progreso-columna-lateral">' +
       renderSeccionCalendario(data) +
@@ -1039,6 +1043,768 @@ GYMAPP.progreso = (function () {
     return combinarAdherenciaYRendimiento(serieBase, function (d) { return d.volumenPromedioPorSesion; });
   }
 
+  /* --- PROG-04: Estado del plan / Fatiga y progresión ---
+
+     Capa general (no por bloque ni por ejercicio) que lee el estado actual
+     del entrenamiento y lo resume en progresar / consolidar / intensificar /
+     descargar, o null cuando no hay datos suficientes. Nunca usa la semana
+     del plan para decidir: el storage no tiene fecha_inicio/fecha_fin, así
+     que la "semana N de registros de esta rutina" es solo contexto.
+
+     Dos piezas:
+     - construirInputEstadoPlan(data, hoyISO): arma todos los datos que
+       necesita la decisión, con la fecha de hoy EXPLÍCITA (fechas locales,
+       semanas lunes-domingo). No escribe nada.
+     - calcularEstadoPlan(input): función PURA (sin DOM, sin storage, sin
+       new Date()): solo lee números y fechas ISO ya calculados.
+
+     No modifica PROG-01/02/03: sus estados se usan solo como contexto; las
+     señales salen de las métricas subyacentes (series principales, RPE por
+     sesión, adherencia).
+
+     Umbrales: elegidos para v1 y documentados acá para poder ajustarlos
+     con datos reales. */
+
+  var EP_SEMANAS_VENTANA = 4;
+  var EP_RPE_ALTO = 9;
+  var EP_MIN_SESIONES_RPE_ALTO = 3;
+  var EP_DIAS_VENTANA_RPE = 14;
+  var EP_PROPORCION_EJERCICIOS = 0.3;
+  var EP_MIN_EJERCICIOS_EVALUABLES = 3;
+  var EP_MIN_EJERCICIOS_S4 = 2;
+  /* Caída "clara": -5% en las reps (o en el trabajo por serie) de las
+     series principales. Mismo piso que PROG-03 (cambioClaroNegativo), para
+     no disparar señales por una repetición de diferencia. */
+  var EP_UMBRAL_CAIDA_PCT = -5;
+  var EP_UMBRAL_MEJORA_PCT = 2;
+  var EP_UMBRAL_SALTO_CARGA_PCT = 10;
+  var EP_UMBRAL_SALTO_RENDIMIENTO_PCT = 15;
+  var EP_TENDENCIA_MUY_ALTA_PCT = 8;
+  var EP_DIAS_EJERCICIO_RECIENTE = 21;
+  var EP_DIAS_SIN_ENTRENAR = 21;
+  var EP_RPE_PROMEDIO_ALTO = 8.5;
+  var EP_RPE_INTENSIFICAR_MAX = 7.5;
+  var EP_ADHERENCIA_BAJA = 0.5;
+  var EP_ADHERENCIA_INTENSIFICAR = 0.75;
+  var EP_SEMANAS_INTENSIFICAR = 3;
+  var EP_SEMANA_LIVIANA_CAIDA_PCT = -20;
+  var EP_SEMANA_LIVIANA_RPE_MAX = 6;
+  /* Una serie con carga menor pero >= 90% de la principal puede ser una
+     serie efectiva (back-off) y no una aproximación: no se puede saber, así
+     que la estructura se marca como ambigua (baja la confianza). */
+  var EP_CERCANIA_CARGA_AMBIGUA = 0.9;
+  var EP_MAX_CAMBIOS_EJERCICIO = 4;
+
+  /* --- Fechas ISO deterministas (YYYY-MM-DD), sin depender de "ahora" --- */
+
+  function partesFechaISO(iso) {
+    var p = iso.split("-");
+    return [parseInt(p[0], 10), parseInt(p[1], 10), parseInt(p[2], 10)];
+  }
+
+  function numeroDeDiaISO(iso) {
+    var p = partesFechaISO(iso);
+    return Math.round(Date.UTC(p[0], p[1] - 1, p[2]) / 86400000);
+  }
+
+  function diasEntreISO(desdeISO, hastaISO) {
+    return numeroDeDiaISO(hastaISO) - numeroDeDiaISO(desdeISO);
+  }
+
+  function sumarDiasISO(iso, dias) {
+    var p = partesFechaISO(iso);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + dias));
+    return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+  }
+
+  function formatearDiaMesISO(iso) {
+    var p = iso.split("-");
+    return p[2] + "/" + p[1];
+  }
+
+  function plural(n, singular, pluralTexto) {
+    return n + " " + (n === 1 ? singular : pluralTexto);
+  }
+
+  function formatearDecimal(n) {
+    return (Math.round(n * 10) / 10).toFixed(1).replace(".", ",");
+  }
+
+  /* --- Series principales ---
+
+     Regla (sin detectar calentamientos automáticamente):
+     1. Se ignoran series sin repeticiones registradas.
+     2. Carga principal = la carga máxima de esa ejecución.
+     3. Series principales = las que se hicieron con esa carga máxima, en
+        el orden registrado. Son las únicas que se comparan.
+     4. Las series con menos carga cuentan para el volumen/contexto, pero
+        nunca disparan una señal por sí solas.
+     5. Peso corporal (todas las series en 0 kg): no hay carga con qué
+        distinguir, así que todas las series son principales.
+     6. Ambigüedad (no se inventa interpretación, solo baja la confianza):
+        - alguna serie con menos carga está a >= 90% de la principal
+          (puede ser una serie efectiva y no una aproximación), o
+        - la carga máxima tiene una sola serie y hay 2+ series más livianas
+          (estructura en rampa/pirámide: no está claro cuál es el trabajo). */
+  function analizarSeriesPrincipales(series) {
+    var validas = (series || [])
+      .map(function (s) { return { peso: Number(s.peso_kg) || 0, reps: Number(s.reps) || 0 }; })
+      .filter(function (s) { return s.reps > 0; });
+
+    if (!validas.length) {
+      return { sinDatos: true, pesoCorporal: false, cargaPrincipal: 0, repsPrincipales: [], seriesSecundarias: 0, ambigua: false };
+    }
+
+    var cargaMaxima = validas.reduce(function (max, s) { return Math.max(max, s.peso); }, 0);
+    if (cargaMaxima === 0) {
+      return {
+        sinDatos: false, pesoCorporal: true, cargaPrincipal: 0,
+        repsPrincipales: validas.map(function (s) { return s.reps; }), seriesSecundarias: 0, ambigua: false
+      };
+    }
+
+    var principales = validas.filter(function (s) { return Math.abs(s.peso - cargaMaxima) < 0.001; });
+    var secundarias = validas.filter(function (s) { return Math.abs(s.peso - cargaMaxima) >= 0.001; });
+    var secundariasCercanas = secundarias.filter(function (s) { return s.peso >= cargaMaxima * EP_CERCANIA_CARGA_AMBIGUA; });
+
+    return {
+      sinDatos: false,
+      pesoCorporal: false,
+      cargaPrincipal: cargaMaxima,
+      repsPrincipales: principales.map(function (s) { return s.reps; }),
+      seriesSecundarias: secundarias.length,
+      ambigua: secundariasCercanas.length > 0 || (principales.length === 1 && secundarias.length >= 2)
+    };
+  }
+
+  function promedioSimple(valores) {
+    if (!valores.length) return null;
+    return valores.reduce(function (a, b) { return a + b; }, 0) / valores.length;
+  }
+
+  /* Compara dos ejecuciones reales de un ejercicio usando SOLO sus series
+     principales. Se comparan las primeras k series principales de cada una
+     (k = la menor cantidad), así que agregar o quitar una serie efectiva no
+     se lee como mejora ni como caída: eso es volumen, no rendimiento.
+     tipo:
+       "misma_carga"   misma carga principal: se comparan reps promedio.
+       "carga_mayor"   subió la carga: menos reps es esperable, NUNCA es
+                       caída (cuenta como mejora).
+       "carga_menor"   bajó la carga: se compara el trabajo por serie
+                       principal (carga x reps), para no premiar ni
+                       castigar el cambio de carga en sí.
+       "peso_corporal" ambas sin carga: se comparan reps promedio.
+       "no_comparable" falta información o una tiene carga y la otra no. */
+  function compararEjecucionesPrincipales(anterior, actual) {
+    var base = { tipo: "no_comparable", cambioCargaPct: null, cambioRepsPrincipalPct: null, cambioRendimientoPct: null, esCaida: false, esMejora: false, esSalto: false };
+    if (anterior.sinDatos || actual.sinDatos || anterior.pesoCorporal !== actual.pesoCorporal) return base;
+
+    var k = Math.min(anterior.repsPrincipales.length, actual.repsPrincipales.length);
+    var repsAnt = promedioSimple(anterior.repsPrincipales.slice(0, k));
+    var repsAct = promedioSimple(actual.repsPrincipales.slice(0, k));
+    var cambioReps = calcularCambioPorcentual(repsAct, repsAnt);
+
+    var tipo;
+    var cambioCarga = null;
+    var cambioRendimiento;
+    if (actual.pesoCorporal) {
+      tipo = "peso_corporal";
+      cambioRendimiento = cambioReps;
+    } else {
+      cambioCarga = calcularCambioPorcentual(actual.cargaPrincipal, anterior.cargaPrincipal);
+      if (Math.abs(actual.cargaPrincipal - anterior.cargaPrincipal) < 0.001) {
+        tipo = "misma_carga";
+        cambioRendimiento = cambioReps;
+      } else {
+        tipo = actual.cargaPrincipal > anterior.cargaPrincipal ? "carga_mayor" : "carga_menor";
+        cambioRendimiento = calcularCambioPorcentual(actual.cargaPrincipal * repsAct, anterior.cargaPrincipal * repsAnt);
+      }
+    }
+
+    var esCaida = tipo !== "carga_mayor" && cambioRendimiento !== null && cambioRendimiento <= EP_UMBRAL_CAIDA_PCT;
+    var esMejora = tipo === "carga_mayor" || (cambioRendimiento !== null && cambioRendimiento >= EP_UMBRAL_MEJORA_PCT);
+    var esSalto = (tipo === "carga_mayor" && cambioCarga !== null && cambioCarga >= EP_UMBRAL_SALTO_CARGA_PCT) ||
+      (cambioRendimiento !== null && cambioRendimiento > EP_UMBRAL_SALTO_RENDIMIENTO_PCT);
+
+    return {
+      tipo: tipo,
+      cambioCargaPct: cambioCarga,
+      cambioRepsPrincipalPct: cambioReps,
+      cambioRendimientoPct: cambioRendimiento,
+      esCaida: esCaida,
+      esMejora: esMejora,
+      esSalto: esSalto
+    };
+  }
+
+  /* Valor que alimenta la tendencia: una subida de carga nunca cuenta como
+     tendencia negativa aunque el trabajo por serie haya bajado un poco. */
+  function valorParaTendencia(comparacion) {
+    if (comparacion.cambioRendimientoPct === null) return null;
+    if (comparacion.tipo === "carga_mayor") return Math.max(0, comparacion.cambioRendimientoPct);
+    return comparacion.cambioRendimientoPct;
+  }
+
+  /* --- Constructor del input (lee data, no escribe nada) --- */
+
+  function construirInputEstadoPlan(data, hoyISO) {
+    var semanaActual = inicioDeSemanaISO(hoyISO);
+    var bloquesActivos = data.rutina.dias.map(function (d) { return d.id; });
+    var esActivo = {};
+    bloquesActivos.forEach(function (id) { esActivo[id] = true; });
+
+    var todas = (data.sesiones_entrenamiento || [])
+      .map(function (s) { return { sesion: s, fechaISO: GYMAPP.util.fechaLocalISO(s.fecha) }; })
+      .filter(function (x) { return x.fechaISO <= hoyISO; })
+      .sort(function (a, b) {
+        if (a.fechaISO !== b.fechaISO) return a.fechaISO < b.fechaISO ? -1 : 1;
+        return String(a.sesion.fecha) < String(b.sesion.fecha) ? -1 : 1;
+      });
+
+    var gimnasio = todas.filter(function (x) { return x.sesion.tipo === "gimnasio"; });
+    var deLaRutina = gimnasio.filter(function (x) { return esActivo[x.sesion.dia_rutina_id]; });
+
+    /* Inicio observado: primera sesión real asociada a un bloque de la
+       rutina actual. No se afirma que sea la fecha real del plan. */
+    var inicioObservado = deLaRutina.length ? deLaRutina[0].fechaISO : null;
+    var semanaInicio = inicioObservado ? inicioDeSemanaISO(inicioObservado) : null;
+    var inicioEsParcial = inicioObservado ? inicioObservado !== semanaInicio : false;
+
+    var semanasCerradasDesdeInicio = (semanaInicio && semanaInicio < semanaActual)
+      ? generarRangoSemanas(semanaInicio, sumarDiasISO(semanaActual, -7))
+      : [];
+
+    var porSemana = {};
+    deLaRutina.forEach(function (x) {
+      var semana = inicioDeSemanaISO(x.fechaISO);
+      if (!porSemana[semana]) porSemana[semana] = [];
+      porSemana[semana].push(x);
+    });
+
+    var semanasCerradasConDatos = semanasCerradasDesdeInicio.filter(function (s) { return porSemana[s] && porSemana[s].length; }).length;
+
+    var semanasVentana = semanasCerradasDesdeInicio.slice(-EP_SEMANAS_VENTANA);
+    if (semanaInicio) semanasVentana = semanasVentana.concat([semanaActual]);
+
+    var semanas = semanasVentana.map(function (semana) {
+      var sesionesSemana = porSemana[semana] || [];
+      var volumenPorBloque = {};
+      sesionesSemana.forEach(function (x) {
+        var id = x.sesion.dia_rutina_id;
+        volumenPorBloque[id] = (volumenPorBloque[id] || 0) + volumenSesionCompleta(x.sesion);
+      });
+      var bloquesRealizados = Object.keys(volumenPorBloque).length;
+      var rpes = sesionesSemana.map(function (x) { return typeof x.sesion.rpe === "number" ? x.sesion.rpe : null; });
+      var rpesValidos = rpes.filter(function (r) { return r !== null; });
+      return {
+        semana: semana,
+        cerrada: semana < semanaActual,
+        esSemanaInicioParcial: semana === semanaInicio && inicioEsParcial,
+        bloquesPlanificados: bloquesActivos.length,
+        bloquesRealizados: bloquesRealizados,
+        adherencia: bloquesActivos.length ? Math.min(1, bloquesRealizados / bloquesActivos.length) : 0,
+        sesiones: sesionesSemana.length,
+        sesionesSinRpe: rpes.length - rpesValidos.length,
+        rpes: rpesValidos,
+        rpePromedio: promedioSimple(rpesValidos),
+        volumenTotal: Object.keys(volumenPorBloque).reduce(function (acc, id) { return acc + volumenPorBloque[id]; }, 0),
+        volumenPorBloque: volumenPorBloque
+      };
+    });
+
+    var ejercicios = [];
+    data.rutina.dias.forEach(function (dia) {
+      (dia.ejercicios || []).forEach(function (ej) {
+        var ejecuciones = gimnasio
+          .map(function (x) {
+            var registro = (x.sesion.ejercicios_realizados || []).filter(function (er) { return er.ejercicio_id === ej.id; })[0];
+            if (!registro) return null;
+            var principal = analizarSeriesPrincipales(registro.series);
+            return {
+              sesionId: x.sesion.id,
+              fechaISO: x.fechaISO,
+              semanaISO: inicioDeSemanaISO(x.fechaISO),
+              principal: principal,
+              repsTotales: (registro.series || []).reduce(function (acc, s) { return acc + (Number(s.reps) || 0); }, 0),
+              volumenTotal: volumenDeSeries(registro.series || [])
+            };
+          })
+          .filter(function (e) { return e && !e.principal.sinDatos; });
+
+        if (!ejecuciones.length) return;
+
+        var recientes = ejecuciones.slice(-(EP_MAX_CAMBIOS_EJERCICIO + 1));
+        var comparaciones = [];
+        for (var i = 1; i < recientes.length; i++) {
+          var c = compararEjecucionesPrincipales(recientes[i - 1].principal, recientes[i].principal);
+          c.sesionId = recientes[i].sesionId;
+          c.fechaISO = recientes[i].fechaISO;
+          comparaciones.push(c);
+        }
+
+        /* Tendencia3: promedio de los últimos 3 cambios reales entre
+           ejecuciones (nunca semanas faltantes = 0, porque una semana sin
+           el ejercicio no genera ninguna ejecución). */
+        var ultimosTres = comparaciones.slice(-3).map(valorParaTendencia);
+        var tendencia3 = (ultimosTres.length === 3 && ultimosTres.every(function (v) { return v !== null; }))
+          ? promedioSimple(ultimosTres) : null;
+
+        var ultima = recientes[recientes.length - 1];
+        var anteultima = recientes.length >= 2 ? recientes[recientes.length - 2] : null;
+
+        ejercicios.push({
+          ejercicioId: ej.id,
+          nombre: ej.nombre || "",
+          bloqueId: dia.id,
+          cantidadEjecuciones: ejecuciones.length,
+          diasDesdeUltima: diasEntreISO(ultima.fechaISO, hoyISO),
+          ultima: {
+            sesionId: ultima.sesionId,
+            fechaISO: ultima.fechaISO,
+            semanaISO: ultima.semanaISO,
+            cargaPrincipal: ultima.principal.cargaPrincipal,
+            repsPrincipales: ultima.principal.repsPrincipales,
+            seriesSecundarias: ultima.principal.seriesSecundarias,
+            repsTotales: ultima.repsTotales,
+            volumenTotal: ultima.volumenTotal
+          },
+          ambigua: ultima.principal.ambigua || (anteultima ? anteultima.principal.ambigua : false),
+          comparaciones: comparaciones,
+          tendencia3: tendencia3,
+          estadoProg03: estadoProg03DeContexto(data, dia.id, ej.id)
+        });
+      });
+    });
+
+    var bloques = data.rutina.dias.map(function (dia) {
+      var serie = construirSerieSemanalBloque(data.sesiones_entrenamiento, dia.id);
+      var ultimaRealizada = obtenerUltimaSemanaRealizada(serie);
+      var estadoProg02 = null;
+      if (ultimaRealizada && contarSemanasRealizadas(serie) >= 2) {
+        estadoProg02 = calcularRecomendacionProximaSesion({
+          ultimoCambio: ultimaRealizada.cambioPct,
+          tendencia3: ultimaRealizada.tendencia3,
+          rpe: ultimaRealizada.datos.rpePromedio,
+          volumenUltimaSesion: ultimaRealizada.datos.volumenPromedioPorSesion,
+          cantidadSesiones: contarSemanasRealizadas(serie),
+          adherenciaBaja: calcularAdherenciaBaja(serie)
+        }).estado;
+      }
+      return {
+        bloqueId: dia.id,
+        nombre: dia.nombre || "",
+        ultimoCambioPct: ultimaRealizada ? ultimaRealizada.cambioPct : null,
+        tendencia3: ultimaRealizada ? ultimaRealizada.tendencia3 : null,
+        estadoProg02: estadoProg02
+      };
+    });
+
+    var sesionesRecientes = gimnasio
+      .filter(function (x) { return diasEntreISO(x.fechaISO, hoyISO) < EP_DIAS_VENTANA_RPE * 2; })
+      .map(function (x) {
+        return {
+          sesionId: x.sesion.id,
+          fechaISO: x.fechaISO,
+          diasDesdeHoy: diasEntreISO(x.fechaISO, hoyISO),
+          rpe: typeof x.sesion.rpe === "number" ? x.sesion.rpe : null,
+          duracion_min: x.sesion.duracion_min,
+          bloqueId: x.sesion.dia_rutina_id
+        };
+      });
+
+    var futbolContexto = todas
+      .filter(function (x) { return x.sesion.tipo === "futbol" && diasEntreISO(x.fechaISO, hoyISO) < EP_DIAS_VENTANA_RPE; })
+      .map(function (x) {
+        return { fechaISO: x.fechaISO, rpe: typeof x.sesion.rpe === "number" ? x.sesion.rpe : null, duracion_min: x.sesion.duracion_min };
+      });
+
+    return {
+      hoyISO: hoyISO,
+      semanaActualISO: semanaActual,
+      cantidadBloquesActivos: bloquesActivos.length,
+      inicioObservadoISO: inicioObservado,
+      semanaDeRegistros: semanaInicio ? Math.floor(diasEntreISO(semanaInicio, semanaActual) / 7) + 1 : null,
+      sesionesDeLaRutina: deLaRutina.length,
+      rpePromedioRutina: promedioSimple(deLaRutina.map(function (x) { return x.sesion.rpe; }).filter(function (r) { return typeof r === "number"; })),
+      semanasCerradasDesdeInicio: semanasCerradasDesdeInicio.length,
+      semanasCerradasConDatos: semanasCerradasConDatos,
+      diasDesdeUltimaSesionRutina: deLaRutina.length ? diasEntreISO(deLaRutina[deLaRutina.length - 1].fechaISO, hoyISO) : null,
+      semanas: semanas,
+      ejercicios: ejercicios,
+      bloques: bloques,
+      sesionesRecientes: sesionesRecientes,
+      futbolContexto: futbolContexto
+    };
+  }
+
+  /* Estado de PROG-03 para un ejercicio, calculado EXACTAMENTE como lo
+     muestra "Próxima vez en este ejercicio". Solo contexto: ninguna señal
+     de PROG-04 se dispara por este texto. */
+  function estadoProg03DeContexto(data, bloqueId, ejercicioId) {
+    var ejecuciones = reconstruirEjecucionesEjercicio(data.sesiones_entrenamiento, ejercicioId);
+    if (ejecuciones.length < 2) return null;
+    var serie = construirSerieEjecucionesConCambios(ejecuciones);
+    var ultimo = serie[serie.length - 1];
+    var anterior = serie[serie.length - 2];
+    var ejercicioRutina = obtenerEjercicioDeRutina(data, bloqueId, ejercicioId);
+    return calcularRecomendacionEjercicio({
+      cantidadEjecuciones: ejecuciones.length,
+      pesoMaximoUltimo: ultimo.datos.pesoMaximo,
+      cambioPesoMaximoPct: calcularCambioPorcentual(ultimo.datos.pesoMaximo, anterior.datos.pesoMaximo),
+      repsTotalesUltimo: ultimo.datos.repsTotales,
+      cambioRepsPct: calcularCambioPorcentual(ultimo.datos.repsTotales, anterior.datos.repsTotales),
+      cambioVolumenPct: ultimo.cambioPct,
+      tendenciaVolumen: ultimo.tendencia3,
+      rpeSesion: ultimo.datos.rpeSesion,
+      rangoReps: ejercicioRutina ? parsearRangoReps(ejercicioRutina.reps_objetivo) : null,
+      repsEnSeriesPrincipales: ultimo.datos.repsEnSeriesPrincipales
+    }).estado;
+  }
+
+  /* --- Función pura de decisión --- */
+
+  function contarSesionesDistintas(lista) {
+    var vistas = {};
+    lista.forEach(function (x) { vistas[x] = true; });
+    return Object.keys(vistas).length;
+  }
+
+  function senal(activa, detalle) {
+    return { activa: !!activa, detalle: detalle };
+  }
+
+  function calcularEstadoPlan(input) {
+    var semanasCerradas = input.semanas.filter(function (s) { return s.cerrada; });
+    var semanaEnCurso = input.semanas.filter(function (s) { return !s.cerrada; })[0] || null;
+
+    /* Ejercicios evaluables: de la rutina actual, con 2+ ejecuciones
+       reales, la última hace <= 21 días y la última comparación hecha
+       sobre series principales comparables. */
+    var evaluables = input.ejercicios.filter(function (e) {
+      var ult = e.comparaciones[e.comparaciones.length - 1];
+      return e.cantidadEjecuciones >= 2 && e.diasDesdeUltima <= EP_DIAS_EJERCICIO_RECIENTE && ult && ult.tipo !== "no_comparable";
+    });
+    var nEval = evaluables.length;
+    function ultimaComp(e) { return e.comparaciones[e.comparaciones.length - 1]; }
+    function proporcion(n) { return nEval > 0 ? n / nEval : 0; }
+
+    /* S1: acumulación de RPE alto (gimnasio, últimos 14 días). */
+    var ultimos14 = input.sesionesRecientes.filter(function (s) { return s.diasDesdeHoy < EP_DIAS_VENTANA_RPE; });
+    var previos14 = input.sesionesRecientes.filter(function (s) { return s.diasDesdeHoy >= EP_DIAS_VENTANA_RPE && s.diasDesdeHoy < EP_DIAS_VENTANA_RPE * 2; });
+    var rpeAltas14 = ultimos14.filter(function (s) { return s.rpe !== null && s.rpe >= EP_RPE_ALTO; }).length;
+    var s1 = rpeAltas14 >= EP_MIN_SESIONES_RPE_ALTO;
+    var rpes14 = ultimos14.map(function (s) { return s.rpe; }).filter(function (r) { return r !== null; });
+    var rpesPrevios = previos14.map(function (s) { return s.rpe; }).filter(function (r) { return r !== null; });
+    var rpePromedio14 = promedioSimple(rpes14);
+    var rpePromedioPrevio = promedioSimple(rpesPrevios);
+
+    /* S2: caída de rendimiento principal en varios ejercicios y en 2+
+       sesiones distintas (una sola mala sesión nunca alcanza). */
+    var conCaida = evaluables.filter(function (e) { return ultimaComp(e).esCaida; });
+    var sesionesConCaida = contarSesionesDistintas(conCaida.map(function (e) { return ultimaComp(e).sesionId; }));
+    var s2 = nEval >= EP_MIN_EJERCICIOS_EVALUABLES && proporcion(conCaida.length) >= EP_PROPORCION_EJERCICIOS && sesionesConCaida >= 2;
+
+    /* S3: tendencia negativa. Además de tendencia3 < 0, se exige que al
+       menos 2 de los últimos 3 cambios sean <= 0, para que una única caída
+       grande no arrastre sola el promedio. */
+    var conTendenciaNegativa = evaluables.filter(function (e) {
+      if (e.tendencia3 === null || !(e.tendencia3 < 0)) return false;
+      var negativos = e.comparaciones.slice(-3).map(valorParaTendencia).filter(function (v) { return v !== null && v <= 0; }).length;
+      return negativos >= 2;
+    });
+    var s3 = nEval >= EP_MIN_EJERCICIOS_EVALUABLES && proporcion(conTendenciaNegativa.length) >= EP_PROPORCION_EJERCICIOS;
+
+    /* S4: misma carga principal y caída clara de reps de las series
+       principales, en 2+ ejercicios y 2+ sesiones distintas. */
+    var conCaidaMismaCarga = evaluables.filter(function (e) {
+      var c = ultimaComp(e);
+      return c.tipo === "misma_carga" && c.cambioRepsPrincipalPct !== null && c.cambioRepsPrincipalPct <= EP_UMBRAL_CAIDA_PCT;
+    });
+    var sesionesS4 = contarSesionesDistintas(conCaidaMismaCarga.map(function (e) { return ultimaComp(e).sesionId; }));
+    var s4 = conCaidaMismaCarga.length >= EP_MIN_EJERCICIOS_S4 && sesionesS4 >= 2;
+
+    /* S5 / esfuerzo en alza: RPE promedio de los últimos 14 días >= el de
+       los 14 anteriores + 1, con 2+ sesiones por encima de ese nivel (una
+       sola sesión extrema no alcanza). S5 exige además que el rendimiento
+       no esté mejorando claramente. */
+    var mejoras = evaluables.filter(function (e) { return ultimaComp(e).esMejora; });
+    var rendimientoMejorandoClaro = nEval > 0 && conCaida.length === 0 && proporcion(mejoras.length) >= 0.5;
+    var esfuerzoEnAlza = rpes14.length >= 2 && rpesPrevios.length >= 2 && rpePromedio14 >= rpePromedioPrevio + 1 &&
+      rpes14.filter(function (r) { return r >= rpePromedioPrevio + 1; }).length >= 2;
+    var s5 = esfuerzoEnAlza && !rendimientoMejorandoClaro;
+
+    /* A: adherencia baja en 2+ de las últimas 3 semanas cerradas. La semana
+       del inicio observado se excluye si no empezó un lunes (es parcial
+       por definición). */
+    var cerradasAdherencia = semanasCerradas.filter(function (s) { return !s.esSemanaInicioParcial; }).slice(-3);
+    var semanasAdherenciaBaja = cerradasAdherencia.filter(function (s) { return s.adherencia < EP_ADHERENCIA_BAJA; }).length;
+    var adherenciaBaja = semanasAdherenciaBaja >= 2;
+
+    /* L: semana liviana aparente (solo contexto: NO borra S2/S4). Última
+       semana cerrada con sesiones vs la semana previa del mismo bloque. */
+    var semanaLiviana = null;
+    var cerradasConSesiones = semanasCerradas.filter(function (s) { return s.sesiones > 0; });
+    if (cerradasConSesiones.length >= 2) {
+      var w = cerradasConSesiones[cerradasConSesiones.length - 1];
+      var cambiosBloque = [];
+      Object.keys(w.volumenPorBloque).forEach(function (bloqueId) {
+        for (var i = cerradasConSesiones.length - 2; i >= 0; i--) {
+          var previo = cerradasConSesiones[i].volumenPorBloque[bloqueId];
+          if (previo) {
+            cambiosBloque.push(calcularCambioPorcentual(w.volumenPorBloque[bloqueId], previo));
+            break;
+          }
+        }
+      });
+      var cambioMedio = promedioSimple(cambiosBloque.filter(function (c) { return c !== null; }));
+      var cargasNoSubieron = input.ejercicios
+        .filter(function (e) { return e.ultima.semanaISO === w.semana && e.comparaciones.length; })
+        .every(function (e) { return ultimaComp(e).tipo !== "carga_mayor"; });
+      if (cambioMedio !== null && cambioMedio <= EP_SEMANA_LIVIANA_CAIDA_PCT && w.rpePromedio !== null &&
+          w.rpePromedio <= EP_SEMANA_LIVIANA_RPE_MAX && cargasNoSubieron) {
+        semanaLiviana = { semanaISO: w.semana, cambioVolumenPct: cambioMedio, rpePromedio: w.rpePromedio };
+      }
+    }
+
+    /* Auxiliares de Consolidar / Intensificar. */
+    var conSalto = evaluables.filter(function (e) { return ultimaComp(e).esSalto; });
+    var conTendenciaMuyAlta = evaluables.filter(function (e) { return e.tendencia3 !== null && e.tendencia3 > EP_TENDENCIA_MUY_ALTA_PCT; });
+    var saltoReciente = (conSalto.length >= 2 && proporcion(conSalto.length) >= EP_PROPORCION_EJERCICIOS) ||
+      (conTendenciaMuyAlta.length >= 2 && proporcion(conTendenciaMuyAlta.length) >= EP_PROPORCION_EJERCICIOS);
+    var ambiguos = evaluables.filter(function (e) { return e.ambigua; }).length;
+    var estructuraAmbigua = ambiguos >= 2 || (nEval > 0 && proporcion(ambiguos) >= EP_PROPORCION_EJERCICIOS);
+    var sinEntrenarMucho = input.diasDesdeUltimaSesionRutina !== null && input.diasDesdeUltimaSesionRutina > EP_DIAS_SIN_ENTRENAR;
+
+    var sesionesVentana = input.semanas.reduce(function (acc, s) { return acc + s.sesiones; }, 0);
+    var sinRpeVentana = input.semanas.reduce(function (acc, s) { return acc + s.sesionesSinRpe; }, 0);
+    var proporcionSinRpe = sesionesVentana > 0 ? sinRpeVentana / sesionesVentana : 0;
+
+    var futbolRpes = input.futbolContexto.map(function (f) { return f.rpe; }).filter(function (r) { return r !== null; });
+    var futbolMinutos = input.futbolContexto.reduce(function (acc, f) { return acc + (Number(f.duracion_min) || 0); }, 0);
+
+    var senales = {
+      rpeAlto: senal(s1, plural(rpeAltas14, "sesión", "sesiones") + " de gimnasio con RPE ≥ " + EP_RPE_ALTO + " en los últimos 14 días"),
+      caidaRendimiento: senal(s2, conCaida.length + " de " + nEval + " ejercicios comparables bajaron su rendimiento principal (" + plural(sesionesConCaida, "sesión", "sesiones distintas") + ")"),
+      tendenciaNegativa: senal(s3, conTendenciaNegativa.length + " de " + nEval + " ejercicios con tendencia negativa en sus últimas ejecuciones"),
+      caidaCargaMantenida: senal(s4, plural(conCaidaMismaCarga.length, "ejercicio bajó", "ejercicios bajaron") + " reps con la misma carga principal (" + plural(sesionesS4, "sesión", "sesiones distintas") + ")"),
+      rpeEnAlza: senal(s5, (rpePromedio14 !== null && rpePromedioPrevio !== null)
+        ? "RPE promedio " + formatearDecimal(rpePromedioPrevio) + " → " + formatearDecimal(rpePromedio14) + " (14 días previos → últimos 14 días)"
+        : "Sin RPE suficiente para comparar los últimos 28 días"),
+      adherenciaBaja: senal(adherenciaBaja, semanasAdherenciaBaja + " de las últimas " + cerradasAdherencia.length + " semanas cerradas con menos de la mitad de los bloques realizados"),
+      semanaLiviana: senal(!!semanaLiviana, semanaLiviana
+        ? "La semana del " + formatearDiaMesISO(semanaLiviana.semanaISO) + " fue sensiblemente más liviana (volumen " + formatearPctEntero(semanaLiviana.cambioVolumenPct) + ", RPE promedio " + formatearDecimal(semanaLiviana.rpePromedio) + ")"
+        : "Sin una semana claramente más liviana"),
+      futbol: senal(false, input.futbolContexto.length
+        ? plural(input.futbolContexto.length, "sesión", "sesiones") + " de fútbol en 14 días" + (futbolRpes.length ? " · RPE promedio " + formatearDecimal(promedioSimple(futbolRpes)) : "") + " · " + futbolMinutos + " min (solo contexto)"
+        : "Sin fútbol en los últimos 14 días (solo contexto)")
+    };
+
+    var contexto = {
+      inicioObservadoISO: input.inicioObservadoISO,
+      semanaDeRegistros: input.semanaDeRegistros,
+      semanasCerradasDesdeInicio: input.semanasCerradasDesdeInicio,
+      semanasCerradasConDatos: input.semanasCerradasConDatos,
+      semanasAnalizadas: semanasCerradas.length,
+      sesionesDeLaRutina: input.sesionesDeLaRutina,
+      rpePromedioRutina: input.rpePromedioRutina,
+      rpePromedio14: rpePromedio14,
+      ejerciciosEvaluables: nEval,
+      ejerciciosAmbiguos: ambiguos,
+      semanaEnCurso: semanaEnCurso ? { sesiones: semanaEnCurso.sesiones, bloquesRealizados: semanaEnCurso.bloquesRealizados, bloquesPlanificados: semanaEnCurso.bloquesPlanificados } : null,
+      futbol: { sesiones: input.futbolContexto.length, rpePromedio: promedioSimple(futbolRpes), minutos: futbolMinutos },
+      auxiliares: { saltoReciente: saltoReciente, esfuerzoEnAlza: esfuerzoEnAlza, estructuraAmbigua: estructuraAmbigua, sinEntrenarMucho: sinEntrenarMucho, proporcionSinRpe: proporcionSinRpe }
+    };
+
+    /* 1. Datos insuficientes. */
+    if (!input.cantidadBloquesActivos || input.semanasCerradasConDatos < 2) {
+      var faltan = Math.max(1, 2 - input.semanasCerradasConDatos);
+      var motivosInsuf = [];
+      if (!input.cantidadBloquesActivos) {
+        motivosInsuf.push("La rutina actual no tiene bloques cargados.");
+      } else if (!input.inicioObservadoISO) {
+        motivosInsuf.push("Todavía no hay sesiones registradas con los bloques de la rutina actual.");
+      } else {
+        motivosInsuf.push(plural(input.sesionesDeLaRutina, "sesión registrada", "sesiones registradas") + " desde el inicio observado (" + formatearDiaMesISO(input.inicioObservadoISO) + ")" +
+          (input.rpePromedioRutina !== null ? " · RPE promedio " + formatearDecimal(input.rpePromedioRutina) : ""));
+        motivosInsuf.push(input.semanasCerradasConDatos + " semana" + (input.semanasCerradasConDatos === 1 ? "" : "s") + " cerrada" + (input.semanasCerradasConDatos === 1 ? "" : "s") + " con entrenamientos de esta rutina; se necesitan 2 para una lectura inicial");
+      }
+      return {
+        estado: null,
+        confianza: "insuficiente",
+        motivos: motivosInsuf,
+        senales: senales,
+        sugerencia: input.cantidadBloquesActivos
+          ? "Seguí registrando tus sesiones. Con aproximadamente " + faltan + " semana" + (faltan === 1 ? "" : "s") + " cerrada" + (faltan === 1 ? "" : "s") + " más con entrenamientos vas a tener una lectura inicial."
+          : "Cargá tu rutina para empezar a leer el estado del plan.",
+        contexto: contexto
+      };
+    }
+
+    var fatigas = [s1, s2, s3, s4, s5].filter(Boolean).length;
+    var hayRendimiento = s2 || s3 || s4;
+
+    /* Motivos con datos concretos, en orden de relevancia. */
+    var motivos = [];
+    function agregar(cond, texto) { if (cond && motivos.indexOf(texto) === -1) motivos.push(texto); }
+
+    var estado;
+    if ((s1 && (s2 || s4)) || (s2 && s3) || (fatigas >= 3 && hayRendimiento)) {
+      estado = "descargar";
+      agregar(s1, senales.rpeAlto.detalle);
+      agregar(s4, senales.caidaCargaMantenida.detalle);
+      agregar(s2, senales.caidaRendimiento.detalle);
+      agregar(s3, senales.tendenciaNegativa.detalle);
+      agregar(s5, senales.rpeEnAlza.detalle);
+    } else if (fatigas >= 1 || saltoReciente || (rpePromedio14 !== null && rpePromedio14 >= EP_RPE_PROMEDIO_ALTO) ||
+        adherenciaBaja || sinEntrenarMucho || semanaLiviana || esfuerzoEnAlza) {
+      estado = "consolidar";
+      agregar(sinEntrenarMucho, input.diasDesdeUltimaSesionRutina + " días sin entrenar con esta rutina: retomá de a poco antes de progresar");
+      agregar(s1, senales.rpeAlto.detalle);
+      agregar(s2, senales.caidaRendimiento.detalle);
+      agregar(s4, senales.caidaCargaMantenida.detalle);
+      agregar(s3, senales.tendenciaNegativa.detalle);
+      agregar(s5, senales.rpeEnAlza.detalle);
+      agregar(esfuerzoEnAlza && !s5, "El RPE promedio subió de " + formatearDecimal(rpePromedioPrevio || 0) + " a " + formatearDecimal(rpePromedio14 || 0) + " aunque el rendimiento sigue mejorando");
+      agregar(rpePromedio14 !== null && rpePromedio14 >= EP_RPE_PROMEDIO_ALTO, "RPE promedio de " + formatearDecimal(rpePromedio14 || 0) + " en los últimos 14 días");
+      agregar(saltoReciente, plural(Math.max(conSalto.length, conTendenciaMuyAlta.length), "ejercicio", "ejercicios") + " con un salto fuerte reciente de carga o rendimiento");
+      agregar(adherenciaBaja, senales.adherenciaBaja.detalle + ": primero recuperá regularidad");
+      agregar(!!semanaLiviana, senales.semanaLiviana.detalle + "; sin una marca de descarga no se puede saber si fue intencional");
+    } else if (esIntensificable()) {
+      estado = "intensificar";
+      agregar(true, "Adherencia de 75% o más en las últimas " + EP_SEMANAS_INTENSIFICAR + " semanas cerradas");
+      agregar(true, (nEval - conCaida.length) + " de " + nEval + " ejercicios comparables mejoraron o se mantuvieron, sin caídas");
+      agregar(true, "RPE promedio de " + formatearDecimal(rpeIntensificar()) + " en esas semanas, sin señales de fatiga");
+    } else {
+      estado = "progresar";
+      agregar(nEval > 0, (nEval - conCaida.length) + " de " + nEval + " ejercicios comparables mejoraron o se mantuvieron");
+      agregar(rpePromedio14 !== null, "RPE promedio de " + formatearDecimal(rpePromedio14 || 0) + " en los últimos 14 días");
+      agregar(true, "Sin acumulación de señales de fatiga");
+    }
+
+    /* Sesión aislada: se informa, nunca cambia el estado por sí sola. */
+    if (conCaida.length >= 2 && sesionesConCaida === 1) {
+      var fechaAislada = ultimaComp(conCaida[0]).fechaISO;
+      agregar(true, "La sesión del " + formatearDiaMesISO(fechaAislada) + " mostró caídas en " + conCaida.length + " ejercicios, pero una sesión aislada no alcanza para cambiar el estado");
+    }
+    agregar(!!semanaLiviana && estado !== "consolidar", senales.semanaLiviana.detalle + "; sin una marca de descarga no se puede saber si fue intencional");
+    if (motivos.length < 2) agregar(input.futbolContexto.length > 0, senales.futbol.detalle);
+    motivos = motivos.slice(0, 4);
+
+    /* Confianza. */
+    var confianza = "normal";
+    if (input.semanasCerradasDesdeInicio < EP_SEMANAS_VENTANA || nEval < EP_MIN_EJERCICIOS_EVALUABLES ||
+        proporcionSinRpe > 0.3 || estructuraAmbigua || semanaLiviana) {
+      confianza = "inicial";
+    }
+
+    return {
+      estado: estado,
+      confianza: confianza,
+      motivos: motivos,
+      senales: senales,
+      sugerencia: SUGERENCIAS_ESTADO_PLAN[estado],
+      contexto: contexto
+    };
+
+    /* Intensificar: 3+ semanas cerradas consecutivas (las últimas) con
+       adherencia >= 75%, 3+ ejercicios evaluables sin caídas, mayoría con
+       margen (sin caída ni salto), RPE <= 7,5 y ninguna señal ni auxiliar. */
+    function semanasIntensificar() {
+      return semanasCerradas.slice(-EP_SEMANAS_INTENSIFICAR);
+    }
+    function rpeIntensificar() {
+      var todos = [];
+      semanasIntensificar().forEach(function (s) { todos = todos.concat(s.rpes); });
+      return promedioSimple(todos);
+    }
+    function esIntensificable() {
+      var ultimas = semanasIntensificar();
+      if (ultimas.length < EP_SEMANAS_INTENSIFICAR) return false;
+      if (!ultimas.every(function (s) { return s.adherencia >= EP_ADHERENCIA_INTENSIFICAR; })) return false;
+      if (nEval < EP_MIN_EJERCICIOS_EVALUABLES || conCaida.length > 0) return false;
+      var conMargen = evaluables.filter(function (e) { var c = ultimaComp(e); return !c.esCaida && !c.esSalto; }).length;
+      if (!(proporcion(conMargen) > 0.5)) return false;
+      var rpe = rpeIntensificar();
+      if (rpe === null || rpe > EP_RPE_INTENSIFICAR_MAX) return false;
+      if (rpePromedio14 !== null && rpePromedio14 > EP_RPE_INTENSIFICAR_MAX) return false;
+      return !estructuraAmbigua;
+    }
+  }
+
+  var SUGERENCIAS_ESTADO_PLAN = {
+    progresar: "Seguí con la progresión gradual que sugieren tus recomendaciones por bloque y por ejercicio, priorizando la técnica.",
+    consolidar: "Sostené las cargas y series actuales y buscá repetir o mejorar levemente el rendimiento antes de volver a subir.",
+    intensificar: "Podés acercar gradualmente el esfuerzo de las series principales al objetivo de tu plan, sin llegar al fallo.",
+    descargar: "Durante una semana, reducí aproximadamente entre un tercio y la mitad de las series efectivas y mantené el esfuerzo alrededor de RPE 6–7. Después volvé a evaluar. Si tu entrenador indicó otra pauta, priorizá esa."
+  };
+
+  /* --- UI de PROG-04 --- */
+
+  var PRESENTACION_ESTADO_PLAN = {
+    progresar: { emoji: "🟢", etiqueta: "Progresar", clase: "optimo" },
+    consolidar: { emoji: "🟡", etiqueta: "Consolidar", clase: "mantenimiento" },
+    intensificar: { emoji: "🔵", etiqueta: "Intensificar", clase: "alto" },
+    descargar: { emoji: "🟠", etiqueta: "Descargar / recuperar", clase: "agresivo" },
+    insuficiente: { emoji: "⚪", etiqueta: "Datos insuficientes", clase: "neutro" }
+  };
+
+  var NOMBRES_SENALES_PLAN = [
+    ["rpeAlto", "RPE alto"],
+    ["caidaRendimiento", "Caída de rendimiento"],
+    ["tendenciaNegativa", "Tendencia negativa"],
+    ["caidaCargaMantenida", "Caída con carga mantenida"],
+    ["rpeEnAlza", "RPE en alza"],
+    ["adherenciaBaja", "Adherencia"],
+    ["semanaLiviana", "Semana liviana aparente"],
+    ["futbol", "Fútbol reciente (contexto)"]
+  ];
+
+  function renderSeccionEstadoPlan(r) {
+    var pres = PRESENTACION_ESTADO_PLAN[r.estado || "insuficiente"];
+    var c = r.contexto;
+    var lineasContexto = [];
+    if (c.inicioObservadoISO) {
+      lineasContexto.push("Semana " + c.semanaDeRegistros + " de registros de esta rutina");
+      lineasContexto.push("Inicio observado: " + formatearDiaMesISO(c.inicioObservadoISO));
+      lineasContexto.push(c.semanasAnalizadas + " semana" + (c.semanasAnalizadas === 1 ? "" : "s") + " cerrada" + (c.semanasAnalizadas === 1 ? "" : "s") + " analizada" + (c.semanasAnalizadas === 1 ? "" : "s"));
+    }
+
+    var esc = GYMAPP.util.escapeHtml;
+    return (
+      '<div class="progreso-panel progreso-estado-plan">' +
+      "<h3>Estado del plan</h3>" +
+      '<div class="estado-plan-cabecera">' +
+      '<span class="analisis-badge analisis-badge-' + pres.clase + '">' + pres.emoji + " " + esc(pres.etiqueta) + "</span>" +
+      '<span class="estado-plan-chip">Confianza: ' + esc(r.confianza) + "</span>" +
+      "</div>" +
+      (lineasContexto.length ? '<p class="nota estado-plan-contexto">' + lineasContexto.map(esc).join(" · ") + "</p>" : "") +
+      (r.motivos.length ? '<ul class="estado-plan-motivos">' + r.motivos.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>" : "") +
+      '<p class="nota estado-plan-sugerencia"><strong>Sugerencia:</strong> ' + esc(r.sugerencia) + "</p>" +
+      '<details class="estado-plan-senales"><summary>Señales</summary><ul>' +
+      NOMBRES_SENALES_PLAN.map(function (par) {
+        var s = r.senales[par[0]];
+        var marca = par[0] === "futbol" ? "ℹ️" : (s.activa ? "⚠️" : "✓");
+        return "<li>" + marca + " <strong>" + esc(par[1]) + ":</strong> " + esc(s.detalle) + "</li>";
+      }).join("") +
+      "</ul></details>" +
+      '<p class="nota estado-plan-nota">Lectura orientativa basada en tus registros. No reemplaza el criterio de tu entrenador.</p>' +
+      "</div>"
+    );
+  }
+
+  /* Aviso para PROG-02/03: PROG-04 solo puede volver la lectura más
+     conservadora, nunca más agresiva. No cambia sus rangos ni estados. */
+  function avisoEstadoPlanParaProximaSesion(r) {
+    if (!r) return "";
+    if (r.estado === "descargar") {
+      return '<p class="nota proxima-sesion-nota proxima-sesion-advertencia">⚠ El estado general sugiere recuperar. Priorizá esta lectura por sobre la progresión puntual.</p>';
+    }
+    if (r.estado === "consolidar") {
+      return '<p class="nota proxima-sesion-nota proxima-sesion-advertencia">⚠ Preferí el extremo bajo del rango de progresión.</p>';
+    }
+    return "";
+  }
+
   /* --- Opciones de bloque/ejercicio para el análisis (incluyen históricos,
      sección 11: "un ejercicio o bloque histórico debe seguir analizándose
      aunque ya no esté activo en la rutina actual"). --- */
@@ -1424,7 +2190,7 @@ GYMAPP.progreso = (function () {
      histórico sí sigue siendo analizable (PROG-03 sección 17: depende
      solo del historial de sesiones, nunca de si el bloque sigue activo). */
 
-  function renderSeccionProximaSesion(data) {
+  function renderSeccionProximaSesion(data, estadoPlan) {
     var opcionesBloques = construirOpcionesBloquesAnalisis(data);
     if (!opcionesBloques.length || !estadoAnalisis.bloqueId) return "";
 
@@ -1449,6 +2215,7 @@ GYMAPP.progreso = (function () {
       '<div class="progreso-panel progreso-proxima-sesion">' +
       "<h3>" + titulo + "</h3>" +
       cuerpo +
+      avisoEstadoPlanParaProximaSesion(estadoPlan) +
       "</div>"
     );
   }
@@ -2011,6 +2778,12 @@ GYMAPP.progreso = (function () {
     construirSerieEjecucionesConCambios: construirSerieEjecucionesConCambios,
     parsearRangoReps: parsearRangoReps,
     obtenerEjercicioDeRutina: obtenerEjercicioDeRutina,
-    calcularRecomendacionEjercicio: calcularRecomendacionEjercicio
+    calcularRecomendacionEjercicio: calcularRecomendacionEjercicio,
+    /* PROG-04: expuestas para pruebas unitarias del estado del plan. */
+    analizarSeriesPrincipales: analizarSeriesPrincipales,
+    compararEjecucionesPrincipales: compararEjecucionesPrincipales,
+    construirInputEstadoPlan: construirInputEstadoPlan,
+    calcularEstadoPlan: calcularEstadoPlan,
+    renderSeccionEstadoPlan: renderSeccionEstadoPlan
   };
 })();
