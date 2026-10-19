@@ -12,17 +12,27 @@ const clonar = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v
 function crearLocalStorage() {
   const mapa = new Map();
   const fallas = new Set();
+  const fallasRemove = new Set();
   const escrituras = [];
+  /* Orden real de las operaciones de escritura: ["set"|"remove", clave]. */
+  const operaciones = [];
   return {
     getItem: (k) => (mapa.has(k) ? mapa.get(k) : null),
     setItem: (k, v) => {
       if (fallas.has(k) || fallas.has("*")) throw new Error("QuotaExceededError");
       escrituras.push(k);
+      operaciones.push(["set", k]);
       mapa.set(k, String(v));
     },
-    removeItem: (k) => { mapa.delete(k); },
+    removeItem: (k) => {
+      if (fallasRemove.has(k)) throw new Error("SecurityError");
+      operaciones.push(["remove", k]);
+      mapa.delete(k);
+    },
     _mapa: mapa,
     _fallas: fallas,
+    _fallasRemove: fallasRemove,
+    _operaciones: operaciones,
     _escrituras: escrituras
   };
 }
@@ -37,7 +47,10 @@ function crearNube(opciones) {
     antesDeActualizar: null,   // hook para simular otro dispositivo escribiendo justo antes
     omitirRevisionEnRespuesta: false,
     errorSelect: null,
-    errorRpc: null
+    errorRpc: null,
+    /* Si se define, la RPC de actualización responde esto sin tocar la fila
+       (para simular respuestas del servidor como schema_downgrade). */
+    respuestaActualizar: null
   };
   nube.cliente = {
     from(tabla) {
@@ -60,6 +73,9 @@ function crearNube(opciones) {
         if (nube.fila) return Promise.resolve({ data: "already_exists", error: null });
         nube.fila = { data: clonar(params.p_data), schema_version: params.p_schema_version, revision: 1, updated_at: "2026-10-19T10:00:00Z" };
         return Promise.resolve({ data: "created", error: null });
+      }
+      if (nombre === "actualizar_datos_usuario_seguro" && nube.respuestaActualizar) {
+        return Promise.resolve({ data: clonar(nube.respuestaActualizar), error: null });
       }
       if (nombre === "actualizar_datos_usuario_seguro") {
         if (nube.antesDeActualizar) { const f = nube.antesDeActualizar; nube.antesDeActualizar = null; f(nube); }

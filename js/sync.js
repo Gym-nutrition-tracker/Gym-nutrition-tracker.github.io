@@ -54,6 +54,8 @@ GYMAPP.sync = (function () {
      reemplazar la copia de la nube por sus datos locales en un conflicto. */
   var PALABRA_CONFIRMACION_SOBRESCRIBIR = "SOBRESCRIBIR";
 
+  var MENSAJE_SCHEMA_DOWNGRADE = "La copia de la nube usa una versión de datos más nueva. Actualizá la app antes de sincronizar.";
+
   /* Estado efímero de la UI (no se persiste en ningún lado). Mismo mecanismo
      que usa auth.js para evitar doble click/doble submit; cubre las tres
      acciones (subir/recuperar/sincronizar) para que no se puedan disparar
@@ -384,6 +386,12 @@ GYMAPP.sync = (function () {
         estado: "conflicto", motivo: "rpc_conflict", userId: userId,
         revisionConocida: expectedRevision, revisionRemota: respuesta.revision
       };
+    }
+    /* E0: el servidor rechazó la escritura porque la nube tiene un schema
+       más nuevo. No se toca la nube, no se avanza la syncMeta, no se
+       reintenta ni se restaura nada. */
+    if (respuesta.status === "schema_downgrade") {
+      throw new Error(MENSAJE_SCHEMA_DOWNGRADE);
     }
     throw new Error("Respuesta inesperada del servidor. No se pudo confirmar la sincronización.");
   }

@@ -335,35 +335,33 @@ GYMAPP.rutina = (function () {
     URL.revokeObjectURL(url);
   }
 
-  var CLAVES_BACKUP = ["usuario", "rutina", "sesiones_entrenamiento", "registros_nutricion", "base_alimentos", "medidas_corporales"];
-
+  /* Import manual de backup: toda la validación/migración ocurre en
+     memoria (GYMAPP.backupImport) y recién después de confirmar se
+     escribe, con copia previa e invalidación de la baseline de SYNC-03. */
   function manejarImportacionBackup(container, file) {
     var lector = new FileReader();
 
     lector.onload = function () {
-      var datos;
-      try {
-        datos = JSON.parse(lector.result);
-      } catch (e) {
-        mostrarMensaje(container, "El archivo no es un JSON válido.", "error");
+      var preparado = GYMAPP.backupImport.prepararImportacionBackup(lector.result);
+      if (!preparado.ok) {
+        mostrarMensaje(container, preparado.error, "error");
         return;
       }
 
-      var tieneFormatoValido = CLAVES_BACKUP.every(function (clave) {
-        return Object.prototype.hasOwnProperty.call(datos, clave);
-      });
-      if (!tieneFormatoValido) {
-        mostrarMensaje(container, "El archivo no tiene el formato esperado de un backup de esta app.", "error");
+      var avisoVersion = preparado.versionOrigen < preparado.versionDestino
+        ? "\n\nEl backup es de una versión anterior de la app y se va a actualizar al formato actual."
+        : "";
+      if (!confirm(
+        "Esto reemplaza todos los datos actuales de la app (rutina, historial, nutrición) por los del archivo. ¿Continuar?" +
+        avisoVersion +
+        "\n\nLa próxima vez que sincronices con la nube vas a tener que confirmar qué datos conservar."
+      )) {
         return;
       }
 
-      if (!confirm("Esto reemplaza todos los datos actuales de la app (rutina, historial, nutrición) por los del archivo. ¿Continuar?")) {
-        return;
-      }
-
-      var guardado = GYMAPP.storage.save(datos, { alertaAutomatica: false });
-      if (!guardado) {
-        mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
+      var resultado = GYMAPP.backupImport.aplicarImportacionBackup(preparado, { nombreArchivo: file && file.name });
+      if (!resultado.ok) {
+        mostrarMensaje(container, resultado.error, "error");
         return;
       }
       alert("Backup importado con éxito. La app se va a recargar.");
