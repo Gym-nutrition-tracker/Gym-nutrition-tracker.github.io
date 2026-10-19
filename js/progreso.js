@@ -51,7 +51,8 @@ GYMAPP.progreso = (function () {
      renderSeccionAnalisisSemanal para no dejar la sección sin selección. */
   function primerBloqueActivoOInicial(data, opcionesBloques) {
     if (data.rutina.dias.length) return data.rutina.dias[0].id;
-    return opcionesBloques[0].id;
+    var historicos = construirOpcionesBloquesHistoricos(data);
+    return historicos.length ? historicos[0].id : opcionesBloques[0].id;
   }
 
   /* --- Templates ---
@@ -73,7 +74,7 @@ GYMAPP.progreso = (function () {
       renderResumenGeneral(sesiones, rachas) +
       '<div class="progreso-layout">' +
       '<div class="progreso-columna-principal">' +
-      renderSeccionEvolucion(opcionesBloquesEvolucion, opcionesEjerciciosEvolucion) +
+      renderSeccionEvolucion(data, opcionesBloquesEvolucion, opcionesEjerciciosEvolucion) +
       renderSeccionEstadoPlan(estadoPlan) +
       renderSeccionAnalisisSemanal(data) +
       renderSeccionProximaSesion(data, estadoPlan) +
@@ -121,7 +122,7 @@ GYMAPP.progreso = (function () {
      activo), y opcionalmente un ejercicio puntual de ese bloque (por
      defecto "Todo el bloque", viendo el volumen agregado). */
 
-  function renderSeccionEvolucion(opcionesBloques, opcionesEjercicios) {
+  function renderSeccionEvolucion(data, opcionesBloques, opcionesEjercicios) {
     if (!opcionesBloques.length) {
       return (
         '<div class="progreso-panel progreso-evolucion">' +
@@ -133,7 +134,8 @@ GYMAPP.progreso = (function () {
 
     var selectores = renderSelectorBloqueEjercicio(
       "select-evolucion-bloque", "select-evolucion-ejercicio",
-      opcionesBloques, opcionesEjercicios, estado.bloqueId, estado.ejercicioId
+      construirOpcionesBloquesActivos(data), construirOpcionesBloquesHistoricos(data),
+      distinguirEjerciciosEliminados(data, estado.bloqueId, opcionesEjercicios), estado.bloqueId, estado.ejercicioId
     );
 
     return (
@@ -149,15 +151,30 @@ GYMAPP.progreso = (function () {
      entre Evolución y "Análisis semanal" (misma jerarquía, sección 9 del
      pedido: "igual que en Análisis semanal"). Los ids se parametrizan
      porque ambas secciones conviven en la misma pantalla. */
-  function renderSelectorBloqueEjercicio(idSelectBloque, idSelectEjercicio, opcionesBloques, opcionesEjercicios, bloqueSeleccionado, ejercicioSeleccionado) {
+  function renderSelectorBloqueEjercicio(idSelectBloque, idSelectEjercicio, opcionesActivas, opcionesHistoricas, opcionesEjercicios, bloqueSeleccionado, ejercicioSeleccionado) {
+    var historicoSeleccionado = opcionesHistoricas.some(function (o) { return o.id === bloqueSeleccionado; });
     var selectBloque =
       '<div class="campo"><label for="' + idSelectBloque + '">Bloque / día de rutina</label>' +
       '<select id="' + idSelectBloque + '">' +
-      opcionesBloques.map(function (o) {
+      opcionesActivas.map(function (o) {
         return '<option value="' + o.id + '"' + (o.id === bloqueSeleccionado ? " selected" : "") + ">" +
           GYMAPP.util.escapeHtml(o.nombre) + "</option>";
       }).join("") +
+      (opcionesHistoricas.length
+        ? '<option value="' + VALOR_HISTORIAL_RUTINAS + '"' + (historicoSeleccionado ? " selected" : "") + ">Historial de rutinas anteriores</option>"
+        : "") +
       "</select></div>";
+
+    if (historicoSeleccionado) {
+      selectBloque +=
+        '<div class="campo"><label for="' + idSelectBloque + '-historico">Bloque anterior</label>' +
+        '<select id="' + idSelectBloque + '-historico">' +
+        opcionesHistoricas.map(function (o) {
+          return '<option value="' + o.id + '"' + (o.id === bloqueSeleccionado ? " selected" : "") + ">" +
+            GYMAPP.util.escapeHtml(o.nombre) + "</option>";
+        }).join("") +
+        "</select></div>";
+    }
 
     var selectEjercicio = opcionesEjercicios.length
       ? '<div class="campo"><label for="' + idSelectEjercicio + '">Ejercicio (opcional)</label>' +
@@ -1315,7 +1332,7 @@ GYMAPP.progreso = (function () {
     var ejercicios = [];
     data.rutina.dias.forEach(function (dia) {
       (dia.ejercicios || []).forEach(function (ej) {
-        var ejecuciones = gimnasio
+        var ejecuciones = deLaRutina
           .map(function (x) {
             var registro = (x.sesion.ejercicios_realizados || []).filter(function (er) { return er.ejercicio_id === ej.id; })[0];
             if (!registro) return null;
@@ -1399,7 +1416,9 @@ GYMAPP.progreso = (function () {
       };
     });
 
-    var sesionesRecientes = gimnasio
+    /* Solo bloques activos: los bloques eliminados (historial de rutinas
+       anteriores) no entran en el Estado del plan. */
+    var sesionesRecientes = deLaRutina
       .filter(function (x) { return diasEntreISO(x.fechaISO, hoyISO) < EP_DIAS_VENTANA_RPE * 2; })
       .map(function (x) {
         return {
@@ -1820,6 +1839,95 @@ GYMAPP.progreso = (function () {
     return Object.keys(mapa).map(function (id) { return { id: id, nombre: mapa[id] }; });
   }
 
+  /* --- Bloques activos e historial de rutinas anteriores ---
+
+     construirOpcionesBloquesAnalisis (arriba) sigue intacta: devuelve
+     activos + históricos, y se usa para validar la selección. Para la UI se
+     separan: los selectores principales muestran solo los bloques ACTIVOS
+     de la rutina actual, más una única opción "Historial de rutinas
+     anteriores" que abre un segundo selector con los bloques históricos.
+
+     Las sesiones guardan solo dia_rutina_id/ejercicio_id (nunca el nombre),
+     así que el nombre original de un bloque eliminado no se puede
+     recuperar. Nunca se inventa: la etiqueta se arma con las fechas reales
+     de sus sesiones y la cantidad de sesiones. */
+  var VALOR_HISTORIAL_RUTINAS = "__historial__";
+
+  function construirOpcionesBloquesActivos(data) {
+    return data.rutina.dias.map(function (dia) { return { id: dia.id, nombre: dia.nombre || "(sin nombre)" }; });
+  }
+
+  function construirOpcionesBloquesHistoricos(data) {
+    var activos = {};
+    data.rutina.dias.forEach(function (dia) { activos[dia.id] = true; });
+
+    var porBloque = {};
+    data.sesiones_entrenamiento.forEach(function (sesion) {
+      if (sesion.tipo !== "gimnasio" || !sesion.dia_rutina_id || activos[sesion.dia_rutina_id]) return;
+      var fechaISO = GYMAPP.util.fechaLocalISO(sesion.fecha);
+      var b = porBloque[sesion.dia_rutina_id];
+      if (!b) b = porBloque[sesion.dia_rutina_id] = { id: sesion.dia_rutina_id, primeraISO: fechaISO, ultimaISO: fechaISO, sesiones: 0 };
+      if (fechaISO < b.primeraISO) b.primeraISO = fechaISO;
+      if (fechaISO > b.ultimaISO) b.ultimaISO = fechaISO;
+      b.sesiones += 1;
+    });
+
+    var lista = Object.keys(porBloque).map(function (id) { return porBloque[id]; });
+    lista.sort(function (a, b) {
+      if (a.ultimaISO !== b.ultimaISO) return a.ultimaISO > b.ultimaISO ? -1 : 1;
+      if (a.primeraISO !== b.primeraISO) return a.primeraISO > b.primeraISO ? -1 : 1;
+      return a.id < b.id ? -1 : 1;
+    });
+
+    /* Con sesiones en más de un año, se agrega el año para no confundir. */
+    var anios = {};
+    lista.forEach(function (b) { anios[b.primeraISO.slice(0, 4)] = true; anios[b.ultimaISO.slice(0, 4)] = true; });
+    var conAnio = Object.keys(anios).length > 1;
+    function fecha(iso) {
+      var p = iso.split("-");
+      return p[2] + "/" + p[1] + (conAnio ? "/" + p[0].slice(2) : "");
+    }
+
+    var vistas = {};
+    return lista.map(function (b) {
+      var rango = b.primeraISO === b.ultimaISO ? fecha(b.primeraISO) : fecha(b.primeraISO) + "–" + fecha(b.ultimaISO);
+      var nombre = "Bloque anterior · " + rango + " · " + b.sesiones + (b.sesiones === 1 ? " sesión" : " sesiones");
+      /* Si dos bloques coinciden en fechas y cantidad, se numeran. */
+      vistas[nombre] = (vistas[nombre] || 0) + 1;
+      if (vistas[nombre] > 1) nombre += " (" + vistas[nombre] + ")";
+      return { id: b.id, nombre: nombre, primeraISO: b.primeraISO, ultimaISO: b.ultimaISO, sesiones: b.sesiones };
+    });
+  }
+
+  /* Etiqueta visible de un bloque (activo o histórico) para títulos. */
+  function etiquetaDeBloque(data, bloqueId) {
+    var activo = construirOpcionesBloquesActivos(data).filter(function (o) { return o.id === bloqueId; })[0];
+    if (activo) return activo.nombre;
+    var historico = construirOpcionesBloquesHistoricos(data).filter(function (o) { return o.id === bloqueId; })[0];
+    return historico ? historico.nombre : "";
+  }
+
+  /* Los ejercicios que ya no están en la rutina comparten el texto
+     genérico "Ejercicio eliminado de la rutina"; para que sean
+     distinguibles se numeran por orden de aparición y se agrega su carga
+     máxima real registrada en ese bloque. Solo cambia la etiqueta visible. */
+  function distinguirEjerciciosEliminados(data, bloqueId, opciones) {
+    var n = 0;
+    return opciones.map(function (o) {
+      if (o.nombre !== "Ejercicio eliminado de la rutina") return o;
+      n += 1;
+      var cargaMaxima = 0;
+      data.sesiones_entrenamiento.forEach(function (sesion) {
+        if (sesion.tipo !== "gimnasio" || sesion.dia_rutina_id !== bloqueId) return;
+        (sesion.ejercicios_realizados || []).forEach(function (er) {
+          if (er.ejercicio_id !== o.id) return;
+          (er.series || []).forEach(function (serie) { cargaMaxima = Math.max(cargaMaxima, Number(serie.peso_kg) || 0); });
+        });
+      });
+      return { id: o.id, nombre: "Ejercicio anterior " + n + " · " + (cargaMaxima > 0 ? "máx. " + formatearKg(cargaMaxima) : "peso corporal") };
+    });
+  }
+
   function construirOpcionesEjerciciosDeBloque(data, bloqueId) {
     var mapa = {};
     var diaActual = data.rutina.dias.filter(function (d) { return d.id === bloqueId; })[0];
@@ -1869,7 +1977,7 @@ GYMAPP.progreso = (function () {
     }
 
     if (!estadoAnalisis.bloqueId || !opcionesBloques.some(function (o) { return o.id === estadoAnalisis.bloqueId; })) {
-      estadoAnalisis.bloqueId = opcionesBloques[0].id;
+      estadoAnalisis.bloqueId = primerBloqueActivoOInicial(data, opcionesBloques);
       estadoAnalisis.ejercicioId = "";
     }
 
@@ -1878,13 +1986,13 @@ GYMAPP.progreso = (function () {
       estadoAnalisis.ejercicioId = "";
     }
 
-    var nombreBloque = opcionesBloques.filter(function (o) { return o.id === estadoAnalisis.bloqueId; })[0].nombre;
+    var nombreBloque = etiquetaDeBloque(data, estadoAnalisis.bloqueId);
     var cuerpo;
 
     var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
 
     if (estadoAnalisis.ejercicioId) {
-      var nombreEjercicio = opcionesEjercicios.filter(function (o) { return o.id === estadoAnalisis.ejercicioId; })[0].nombre;
+      var nombreEjercicio = distinguirEjerciciosEliminados(data, estadoAnalisis.bloqueId, opcionesEjercicios).filter(function (o) { return o.id === estadoAnalisis.ejercicioId; })[0].nombre;
       var serieEjercicio = construirSerieSemanalEjercicio(data.sesiones_entrenamiento, estadoAnalisis.ejercicioId);
       cuerpo = renderAnalisisEjercicio(nombreEjercicio, serieEjercicio, esActivo);
     } else {
@@ -1895,7 +2003,7 @@ GYMAPP.progreso = (function () {
     return (
       '<div class="progreso-panel progreso-analisis-semanal">' +
       "<h3>Análisis semanal</h3>" +
-      renderSelectoresAnalisis(opcionesBloques, opcionesEjercicios) +
+      renderSelectoresAnalisis(data, opcionesEjercicios) +
       cuerpo +
       "</div>"
     );
@@ -1904,10 +2012,11 @@ GYMAPP.progreso = (function () {
   /* Reutiliza el mismo helper que Evolución (renderSelectorBloqueEjercicio,
      más arriba): misma jerarquía bloque -> ejercicio opcional, ids propios
      ("select-analisis-*") porque ambas secciones conviven en la pantalla. */
-  function renderSelectoresAnalisis(opcionesBloques, opcionesEjercicios) {
+  function renderSelectoresAnalisis(data, opcionesEjercicios) {
     return renderSelectorBloqueEjercicio(
       "select-analisis-bloque", "select-analisis-ejercicio",
-      opcionesBloques, opcionesEjercicios, estadoAnalisis.bloqueId, estadoAnalisis.ejercicioId
+      construirOpcionesBloquesActivos(data), construirOpcionesBloquesHistoricos(data),
+      distinguirEjerciciosEliminados(data, estadoAnalisis.bloqueId, opcionesEjercicios), estadoAnalisis.bloqueId, estadoAnalisis.ejercicioId
     );
   }
 
@@ -2693,10 +2802,18 @@ GYMAPP.progreso = (function () {
 
   /* --- Eventos --- */
 
+  /* "Historial de rutinas anteriores" no es un bloque: al elegirlo se
+     abre el bloque histórico más reciente (y el segundo selector). */
+  function resolverBloqueSeleccionado(valor) {
+    if (valor !== VALOR_HISTORIAL_RUTINAS) return valor;
+    var historicos = construirOpcionesBloquesHistoricos(GYMAPP.storage.getData());
+    return historicos.length ? historicos[0].id : "";
+  }
+
   function bindEventos(container) {
     container.addEventListener("change", function (ev) {
-      if (ev.target.id === "select-evolucion-bloque") {
-        estado.bloqueId = ev.target.value;
+      if (ev.target.id === "select-evolucion-bloque" || ev.target.id === "select-evolucion-bloque-historico") {
+        estado.bloqueId = resolverBloqueSeleccionado(ev.target.value);
         estado.ejercicioId = "";
         estado.metrica = "volumen_total";
         render(container);
@@ -2704,8 +2821,8 @@ GYMAPP.progreso = (function () {
         estado.ejercicioId = ev.target.value;
         if (!estado.ejercicioId) estado.metrica = "volumen_total";
         render(container);
-      } else if (ev.target.id === "select-analisis-bloque") {
-        estadoAnalisis.bloqueId = ev.target.value;
+      } else if (ev.target.id === "select-analisis-bloque" || ev.target.id === "select-analisis-bloque-historico") {
+        estadoAnalisis.bloqueId = resolverBloqueSeleccionado(ev.target.value);
         estadoAnalisis.ejercicioId = "";
         render(container);
       } else if (ev.target.id === "select-analisis-ejercicio") {
@@ -2784,6 +2901,12 @@ GYMAPP.progreso = (function () {
     compararEjecucionesPrincipales: compararEjecucionesPrincipales,
     construirInputEstadoPlan: construirInputEstadoPlan,
     calcularEstadoPlan: calcularEstadoPlan,
-    renderSeccionEstadoPlan: renderSeccionEstadoPlan
+    renderSeccionEstadoPlan: renderSeccionEstadoPlan,
+    /* Historial de rutinas anteriores: expuestas para pruebas. */
+    construirOpcionesBloquesActivos: construirOpcionesBloquesActivos,
+    construirOpcionesBloquesHistoricos: construirOpcionesBloquesHistoricos,
+    distinguirEjerciciosEliminados: distinguirEjerciciosEliminados,
+    renderSelectorBloqueEjercicio: renderSelectorBloqueEjercicio,
+    VALOR_HISTORIAL_RUTINAS: VALOR_HISTORIAL_RUTINAS
   };
 })();
