@@ -12,6 +12,8 @@ GYMAPP.rutina = (function () {
       bindEventos(container);
       container.dataset.rutinaBound = "1";
     }
+    /* E6: una revisión de PDF en curso sobrevive a un re-render. */
+    if (importacion) abrirModal(container, renderRevisionPlan(data, importacion.borrador));
   }
 
   function hoyISO() {
@@ -57,7 +59,7 @@ GYMAPP.rutina = (function () {
 
   var NOMBRE_PLAN_ACTIVO_DEFAULT = "Plan actual";
   var NOMBRE_PLAN_SIN_NOMBRE = "Plan sin nombre";
-  var ORIGENES = { legacy: "Histórico", migracion: "Migrado de la versión anterior" };
+  var ORIGENES = { legacy: "Histórico", migracion: "Migrado de la versión anterior", pdf: "Importado de PDF" };
 
   /* "YYYY-MM-DD" → "DD/MM/YYYY" (sin Date: no hay corrimiento de zona). */
   function formatearFecha(iso) {
@@ -115,10 +117,10 @@ GYMAPP.rutina = (function () {
     );
   }
 
-  function envolverModal(titulo, cuerpo) {
+  function envolverModal(titulo, cuerpo, clase) {
     return (
       '<div class="modal-fondo">' +
-      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo" tabindex="-1">' +
+      '<div class="modal' + (clase ? " " + clase : "") + '" role="dialog" aria-modal="true" aria-labelledby="modal-titulo" tabindex="-1">' +
       '<div class="modal-header">' +
       '<h3 id="modal-titulo">' + GYMAPP.util.escapeHtml(titulo) + "</h3>" +
       '<button type="button" data-accion="cerrar-modal" class="btn-icono" aria-label="Cerrar">✕</button>' +
@@ -217,12 +219,13 @@ GYMAPP.rutina = (function () {
   }
 
   /* Abre (o reemplaza) el modal. `disparador` recibe el foco al cerrar. */
-  function abrirModal(container, html, disparador) {
+  function abrirModal(container, html, disparador, opciones) {
     var destino = container.querySelector("#rutina-modal");
     if (!destino) return;
     if (!destino.innerHTML && disparador) destino.dataset.disparador = disparador;
     destino.innerHTML = html;
     document.body.classList.add("modal-abierto");
+    if (opciones && opciones.sinFoco) return;
     var foco = destino.querySelector("input") || destino.querySelector(".modal");
     if (foco) foco.focus();
   }
@@ -336,7 +339,7 @@ GYMAPP.rutina = (function () {
   function bindEventos(container) {
     container.addEventListener("click", function (ev) {
       if (ev.target.classList && ev.target.classList.contains("modal-fondo")) {
-        cerrarModal(container);
+        solicitarCerrarModal(container);
         return;
       }
       var boton = ev.target.closest("[data-accion]");
@@ -350,7 +353,9 @@ GYMAPP.rutina = (function () {
       } else if (accion === "ver-plan") {
         abrirModal(container, renderModalDetallePlan(GYMAPP.storage.getData(), boton.dataset.planId));
       } else if (accion === "cerrar-modal") {
-        cerrarModal(container);
+        solicitarCerrarModal(container);
+      } else if (accion.indexOf("rev-") === 0) {
+        manejarAccionRevision(container, accion, boton);
       } else if (accion === "nuevo-dia") {
         agregarDia(container);
       } else if (accion === "borrar-dia") {
@@ -376,7 +381,18 @@ GYMAPP.rutina = (function () {
 
     /* Escape cierra el modal si la pantalla de Rutina sigue visible. */
     document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape" && container.querySelector("#rutina-modal .modal")) cerrarModal(container);
+      if (ev.key === "Escape" && container.querySelector("#rutina-modal .modal")) solicitarCerrarModal(container);
+    });
+
+    /* E6: los campos de la revisión solo actualizan el borrador en memoria. */
+    container.addEventListener("input", function (ev) {
+      if (importacion && ev.target.dataset && ev.target.dataset.revCampo) actualizarCampoRevision(ev.target);
+    });
+    container.addEventListener("change", function (ev) {
+      if (importacion && ev.target.dataset && ev.target.dataset.revCampo) {
+        actualizarCampoRevision(ev.target);
+        refrescarValidacionRevision(container);
+      }
     });
 
     container.addEventListener("change", function (ev) {
@@ -542,33 +558,264 @@ GYMAPP.rutina = (function () {
     mostrarMensajeEn(mensajeEl, "", "oculto");
   }
 
+  /* E6: el PDF ya no se agrega al plan activo. Se lee y se parsea a un
+     borrador en memoria que se revisa antes de activarlo como plan nuevo.
+     Nada se escribe hasta "Activar nuevo plan". */
   function manejarImportacionPdf(container, file) {
     mostrarMensaje(container, "Leyendo PDF...", "info");
-    GYMAPP.pdfImport.importarDesdeArchivo(file).then(function (diasImportados) {
-      if (!diasImportados.length) {
-        mostrarMensaje(container, "No se pudo reconocer ningún ejercicio en el PDF. Cargá los días manualmente.", "error");
-        return;
-      }
-      var resultado = GYMAPP.storage.updateData(function (data) {
-        /* E2: sigue agregando los días importados al plan activo, como
-           antes (el reemplazo/archivado de planes es E6). */
-        diasImportados.forEach(function (dia) { GYMAPP.planes.agregarDiaAlPlanActivo(data, dia); });
-      }, { alertaAutomatica: false });
-      if (!resultado.guardado) {
-        mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
-        return;
-      }
-      var totalEjercicios = diasImportados.reduce(function (acc, d) { return acc + d.ejercicios.length; }, 0);
-      render(container);
-      mostrarMensaje(
-        container,
-        "Se importaron " + diasImportados.length + " día(s) y " + totalEjercicios + " ejercicio(s). Revisá y corregí lo que haga falta, el parseo puede no ser exacto.",
-        "exito"
-      );
+    GYMAPP.pdfImport.importarPlanDesdeArchivo(file).then(function (borrador) {
+      importacion = { borrador: borrador, intentoActivar: false };
+      mostrarMensaje(container, "", "oculto");
+      abrirModal(container, renderRevisionPlan(GYMAPP.storage.getData(), borrador), "importar-pdf");
     }).catch(function (err) {
       console.error("Error al importar PDF", err);
-      mostrarMensaje(container, "Ocurrió un error al leer el PDF. Probá con otro archivo o cargá la rutina manualmente.", "error");
+      var conocido = err && (err.message === GYMAPP.pdfImport.MENSAJE_SIN_TEXTO || err.message === GYMAPP.pdfImport.MENSAJE_SIN_EJERCICIOS || /^No se pudo leer el PDF/.test(err.message));
+      mostrarMensaje(container, conocido ? err.message : "Ocurrió un error al leer el PDF. Probá con otro archivo o cargá la rutina manualmente.", "error");
     });
+  }
+
+  /* --- E6: revisión del plan importado --- */
+
+  /* { borrador, intentoActivar } mientras hay una revisión abierta. */
+  var importacion = null;
+  var CLAVE_PRE_CAMBIO_PLAN = "gymNutritionTracker_preCambioPlan";
+  var CAMPOS_REVISION_EJERCICIO = [
+    ["nombre", "Ejercicio", "text"], ["grupo_muscular", "Grupo muscular", "text"], ["series_objetivo", "Series", "number"],
+    ["reps_objetivo", "Reps", "text"], ["rir_objetivo", "RIR", "text"], ["rpe_objetivo", "RPE", "text"],
+    ["peso_objetivo", "Peso objetivo", "text"], ["pausa", "Pausa", "text"], ["comentarios", "Comentarios", "text"]
+  ];
+
+  function solicitarCerrarModal(container) {
+    if (importacion) {
+      if (!confirm("¿Descartar la importación? No se guardó nada y tu plan actual sigue igual.")) return;
+      importacion = null;
+    }
+    cerrarModal(container);
+  }
+
+  function valorInput(v) {
+    return v === null || v === undefined ? "" : escaparAtributo(String(v));
+  }
+
+  function errorDe(validacion, dia, ejercicio, campo) {
+    return validacion.errores.filter(function (x) { return x.dia === dia && x.ejercicio === ejercicio && x.campo === campo; })[0] || null;
+  }
+
+  function campoRevision(id, etiqueta, tipo, valor, datos, error, extraClase) {
+    var esc = GYMAPP.util.escapeHtml;
+    return (
+      '<div class="rev-campo' + (extraClase ? " " + extraClase : "") + '">' +
+      '<label for="' + id + '">' + esc(etiqueta) + "</label>" +
+      '<input id="' + id + '" type="' + tipo + '"' + (tipo === "number" ? ' inputmode="numeric" min="1" step="1"' : "") +
+      (tipo === "text" && datos.indexOf("grupo_muscular") !== -1 ? ' list="grupos-musculares"' : "") +
+      ' value="' + valorInput(valor) + '" ' + datos +
+      (error ? ' aria-invalid="true" aria-describedby="' + id + '-error"' : "") + " />" +
+      '<p id="' + id + '-error" class="campo-error-texto' + (error ? "" : " oculto") + '">' + (error ? esc(error.mensaje) : "") + "</p>" +
+      "</div>"
+    );
+  }
+
+  function renderAdvertencias(lista) {
+    if (!lista.length) return "";
+    return '<ul class="rev-advertencias">' + lista.map(function (a) {
+      return "<li>⚠ " + GYMAPP.util.escapeHtml(a.mensaje) + "</li>";
+    }).join("") + "</ul>";
+  }
+
+  function renderRevisionPlan(data, borrador) {
+    var esc = GYMAPP.util.escapeHtml;
+    var validacion = GYMAPP.pdfImport.validarPlanParseado(borrador);
+    var mostrarErrores = importacion && importacion.intentoActivar;
+    var v = mostrarErrores ? validacion : { errores: validacion.errores.filter(function (e) { return e.campo === "nombre"; }), advertencias: validacion.advertencias };
+    var activo = GYMAPP.planes.planActivo(data);
+    var totalEjercicios = borrador.dias.reduce(function (n, d) { return n + d.ejercicios.length; }, 0);
+    var generales = v.advertencias.filter(function (a) { return a.dia === null; });
+    var coincide = GYMAPP.planes.borradorCoincideConPlan(borrador, activo);
+    var errorFechas = errorDe(v, null, null, "fechas");
+
+    var dias = borrador.dias.map(function (dia, i) {
+      var pre = "rev-d" + i;
+      var ejercicios = dia.ejercicios.map(function (ej, j) {
+        var datos = function (campo) { return 'data-rev-campo="' + campo + '" data-rev-dia="' + i + '" data-rev-ej="' + j + '"'; };
+        return (
+          '<div class="rev-ejercicio" data-rev-dia="' + i + '" data-rev-ej="' + j + '">' +
+          '<div class="rev-ejercicio-header"><span class="rev-numero">' + (j + 1) + "</span>" +
+          '<button type="button" data-accion="rev-quitar-ej" data-rev-dia="' + i + '" data-rev-ej="' + j + '" class="btn-enlace rev-quitar">Quitar ejercicio</button></div>' +
+          renderAdvertencias(v.advertencias.filter(function (a) { return a.dia === i && a.ejercicio === j; })) +
+          '<div class="rev-grilla">' +
+          CAMPOS_REVISION_EJERCICIO.map(function (c) {
+            var ancho = c[0] === "nombre" || c[0] === "comentarios" ? "rev-campo-ancho" : "";
+            return campoRevision(pre + "-e" + j + "-" + c[0], c[1], c[2], ej[c[0]], datos(c[0]), errorDe(v, i, j, c[0]), ancho);
+          }).join("") +
+          "</div>" +
+          (ej.raw ? '<p class="nota rev-raw">Texto original: ' + esc(ej.raw) + "</p>" : "") +
+          "</div>"
+        );
+      }).join("");
+      return (
+        '<section class="rev-dia" aria-labelledby="' + pre + '-titulo">' +
+        '<div class="rev-dia-header"><h4 id="' + pre + '-titulo">Día ' + (i + 1) + "</h4>" +
+        '<div class="rev-dia-acciones">' +
+        '<button type="button" data-accion="rev-subir-dia" data-rev-dia="' + i + '" class="btn-secundario"' + (i === 0 ? " disabled" : "") + ' aria-label="Subir día ' + (i + 1) + '">↑</button>' +
+        '<button type="button" data-accion="rev-bajar-dia" data-rev-dia="' + i + '" class="btn-secundario"' + (i === borrador.dias.length - 1 ? " disabled" : "") + ' aria-label="Bajar día ' + (i + 1) + '">↓</button>' +
+        '<button type="button" data-accion="rev-quitar-dia" data-rev-dia="' + i + '" class="btn-secundario" aria-label="Quitar día ' + (i + 1) + '">Quitar</button>' +
+        "</div></div>" +
+        campoRevision(pre + "-nombre", "Nombre del día", "text", dia.nombre, 'data-rev-campo="nombre" data-rev-dia="' + i + '"', errorDe(v, i, null, "nombre"), "rev-campo-ancho") +
+        renderAdvertencias(v.advertencias.filter(function (a) { return a.dia === i && a.ejercicio === null; })) +
+        ejercicios +
+        '<button type="button" data-accion="rev-agregar-ej" data-rev-dia="' + i + '" class="btn btn-agregar-ejercicio">+ Agregar ejercicio</button>' +
+        "</section>"
+      );
+    }).join("");
+
+    return envolverModal("Revisar nuevo plan",
+      '<p class="nota">Revisá y corregí lo que haga falta. Nada se guarda hasta que actives el plan.' +
+      (borrador.nombre_archivo ? " Archivo: " + esc(borrador.nombre_archivo) + "." : "") + "</p>" +
+      '<div class="mensaje info rev-coincide' + (coincide ? "" : " oculto") + '" role="status">⚠ Este plan parece coincidir con el plan activo.</div>' +
+      renderAdvertencias(generales) +
+      '<section class="rev-plan" aria-label="Datos del plan">' +
+      campoRevision("rev-plan-nombre", "Nombre del plan", "text", borrador.nombre, 'data-rev-campo="nombre" data-rev-plan="1"', null, "rev-campo-ancho") +
+      '<div class="rev-grilla">' +
+      campoRevision("rev-plan-inicio", "Fecha de inicio", "date", borrador.fecha_inicio, 'data-rev-campo="fecha_inicio" data-rev-plan="1"', errorFechas) +
+      campoRevision("rev-plan-fin", "Fecha de fin", "date", borrador.fecha_fin, 'data-rev-campo="fecha_fin" data-rev-plan="1"', null) +
+      "</div></section>" +
+      dias +
+      '<section class="rev-resumen" aria-labelledby="rev-resumen-titulo">' +
+      '<h4 id="rev-resumen-titulo">Resumen</h4>' +
+      "<p><strong>Nuevo plan:</strong> " + plural(borrador.dias.length, "día", "días") + " · " + plural(totalEjercicios, "ejercicio", "ejercicios") + "</p>" +
+      "<p><strong>Plan actual que será archivado:</strong> " + esc(nombrePlan(activo, NOMBRE_PLAN_ACTIVO_DEFAULT)) + "</p>" +
+      "<p><strong>Sesiones históricas:</strong> no se modificarán</p>" +
+      '<div id="rev-errores" class="mensaje error' + (mostrarErrores && validacion.errores.length ? "" : " oculto") + '" role="alert">' +
+      (mostrarErrores && validacion.errores.length ? esc("Corregí " + plural(validacion.errores.length, "error", "errores") + " antes de activar: " + validacion.errores.map(function (e) { return e.mensaje; }).join(" ")) : "") +
+      "</div>" +
+      '<div class="modal-acciones">' +
+      '<button type="button" data-accion="cerrar-modal" class="btn-secundario">Cancelar</button>' +
+      '<button type="button" data-accion="rev-activar" class="btn-secundario btn-guardar-plan">Activar nuevo plan</button>' +
+      "</div></section>", "modal-revision");
+  }
+
+  /* Input → borrador en memoria (sin re-render, para no perder el foco). */
+  function actualizarCampoRevision(input) {
+    var b = importacion.borrador;
+    var campo = input.dataset.revCampo;
+    var valor = input.value;
+    if (input.dataset.revPlan) {
+      b[campo] = valor.trim() ? valor.trim() : null;
+      return;
+    }
+    var dia = b.dias[Number(input.dataset.revDia)];
+    if (!dia) return;
+    if (input.dataset.revEj === undefined) {
+      dia.nombre = valor.trim() ? valor.trim() : null;
+      return;
+    }
+    var ej = dia.ejercicios[Number(input.dataset.revEj)];
+    if (!ej) return;
+    var P = GYMAPP.pdfImport;
+    if (campo === "series_objetivo") {
+      ej.series_objetivo = valor.trim() === "" ? null : (P.normalizarSeries(valor) !== null ? P.normalizarSeries(valor) : valor.trim());
+    } else if (campo === "rir_objetivo" || campo === "rpe_objetivo") {
+      ej[campo] = P.normalizarValorEsfuerzo(valor);
+    } else {
+      ej[campo] = valor.replace(/\s+/g, " ").trim() || null;
+    }
+  }
+
+  /* Tras editar un campo: actualiza los mensajes de error de nombres sin
+     re-renderizar todo (el foco queda donde está). */
+  function refrescarValidacionRevision(container) {
+    var validacion = GYMAPP.pdfImport.validarPlanParseado(importacion.borrador);
+    var aviso = container.querySelector("#rutina-modal .rev-coincide");
+    if (aviso) {
+      var coincide = GYMAPP.planes.borradorCoincideConPlan(importacion.borrador, GYMAPP.planes.planActivo(GYMAPP.storage.getData()));
+      aviso.className = "mensaje info rev-coincide" + (coincide ? "" : " oculto");
+    }
+    container.querySelectorAll("#rutina-modal [data-rev-campo]").forEach(function (input) {
+      var dia = input.dataset.revPlan ? null : Number(input.dataset.revDia);
+      var ej = input.dataset.revEj === undefined ? null : Number(input.dataset.revEj);
+      var campo = input.dataset.revCampo === "fecha_inicio" ? "fechas" : input.dataset.revCampo;
+      var error = input.dataset.revCampo === "fecha_fin" ? null : errorDe(validacion, dia, ej, campo);
+      if (!(campo === "nombre" || campo === "fechas" || importacion.intentoActivar)) return;
+      var p = container.querySelector("#" + input.id + "-error");
+      if (!p) return;
+      p.textContent = error ? error.mensaje : "";
+      p.className = "campo-error-texto" + (error ? "" : " oculto");
+      if (error) {
+        input.setAttribute("aria-invalid", "true");
+        input.setAttribute("aria-describedby", input.id + "-error");
+      } else {
+        input.removeAttribute("aria-invalid");
+        input.removeAttribute("aria-describedby");
+      }
+    });
+  }
+
+  function rerenderRevision(container, focoSelector) {
+    var modal = container.querySelector("#rutina-modal .modal");
+    var scroll = modal ? modal.scrollTop : 0;
+    abrirModal(container, renderRevisionPlan(GYMAPP.storage.getData(), importacion.borrador), null, { sinFoco: true });
+    var nuevo = container.querySelector("#rutina-modal .modal");
+    if (nuevo) nuevo.scrollTop = scroll;
+    var foco = focoSelector ? container.querySelector(focoSelector) : nuevo;
+    if (foco) foco.focus({ preventScroll: !focoSelector });
+  }
+
+  function manejarAccionRevision(container, accion, boton) {
+    if (!importacion) return;
+    var b = importacion.borrador;
+    var i = Number(boton.dataset.revDia);
+    var j = Number(boton.dataset.revEj);
+    if (accion === "rev-subir-dia" && i > 0) {
+      b.dias.splice(i - 1, 0, b.dias.splice(i, 1)[0]);
+      rerenderRevision(container, '[data-accion="rev-subir-dia"][data-rev-dia="' + Math.max(i - 1, 1) + '"]');
+    } else if (accion === "rev-bajar-dia" && i < b.dias.length - 1) {
+      b.dias.splice(i + 1, 0, b.dias.splice(i, 1)[0]);
+      rerenderRevision(container, '[data-accion="rev-bajar-dia"][data-rev-dia="' + Math.min(i + 1, b.dias.length - 2) + '"]');
+    } else if (accion === "rev-quitar-dia") {
+      if (!confirm("¿Quitar este día del plan importado?")) return;
+      b.dias.splice(i, 1);
+      rerenderRevision(container);
+    } else if (accion === "rev-quitar-ej") {
+      b.dias[i].ejercicios.splice(j, 1);
+      rerenderRevision(container);
+    } else if (accion === "rev-agregar-ej") {
+      b.dias[i].ejercicios.push(GYMAPP.pdfImport.ejercicioVacio());
+      rerenderRevision(container, "#rev-d" + i + "-e" + (b.dias[i].ejercicios.length - 1) + "-nombre");
+    } else if (accion === "rev-activar") {
+      activarPlanImportado(container);
+    }
+  }
+
+  /* Confirmación final: todo en memoria y validado → copia previa → un
+     único guardado. Si algo falla, los datos anteriores quedan intactos. */
+  function activarPlanImportado(container) {
+    importacion.intentoActivar = true;
+    var b = importacion.borrador;
+    var validacion = GYMAPP.pdfImport.validarPlanParseado(b);
+    if (validacion.errores.length) {
+      rerenderRevision(container, "#rev-errores");
+      var primero = container.querySelector('#rutina-modal [aria-invalid="true"]');
+      if (primero) primero.focus();
+      return;
+    }
+    var ahora = new Date().toISOString();
+    var preparado = GYMAPP.planes.prepararCambioDePlan(GYMAPP.storage.getData(), b, { ahora: ahora, nombreArchivo: b.nombre_archivo });
+    var errorEl = container.querySelector("#rev-errores");
+    if (!preparado.ok) {
+      mostrarMensajeEn(errorEl, preparado.error, "error");
+      return;
+    }
+    if (!confirm("El plan actual pasará al historial. Tus entrenamientos anteriores no se modificarán.\n\n¿Activar el nuevo plan?")) return;
+    var guardado = GYMAPP.storage.guardarConCopiaPrevia(CLAVE_PRE_CAMBIO_PLAN, preparado.datos, ahora);
+    if (!guardado.ok) {
+      mostrarMensajeEn(errorEl, guardado.motivo === "copia"
+        ? "No se pudo crear la copia de seguridad previa. No se cambió nada."
+        : "No se pudo guardar el nuevo plan. Tus datos anteriores se conservan intactos.", "error");
+      return;
+    }
+    importacion = null;
+    render(container);
+    mostrarMensaje(container, "Nuevo plan activado. El plan anterior quedó en el Historial de planes.", "exito");
   }
 
   function exportarBackup() {

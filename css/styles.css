@@ -2169,3 +2169,155 @@ body.modal-abierto {
   font-size: 0.82rem;
   color: var(--color-texto-secundario);
 }
+
+/* E6: revisión del plan importado desde PDF. */
+.modal-revision {
+  max-width: 640px;
+  max-height: 94vh;
+}
+
+.rev-plan,
+.rev-dia,
+.rev-resumen {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.rev-dia {
+  border-left: 3px solid var(--color-primario);
+}
+
+.rev-dia-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rev-dia-header h4,
+.rev-resumen h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-celeste);
+}
+
+.rev-dia-acciones {
+  display: flex;
+  gap: 6px;
+}
+
+.rev-dia-acciones .btn-secundario {
+  padding: 6px 10px;
+}
+
+.rev-dia-acciones .btn-secundario:disabled {
+  opacity: 0.35;
+}
+
+.rev-ejercicio {
+  border-top: 1px solid var(--color-borde);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.rev-ejercicio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rev-numero {
+  font-size: 0.8rem;
+  color: var(--color-texto-secundario);
+}
+
+.rev-ejercicio-header .rev-quitar {
+  width: auto;
+  margin: 0;
+  color: var(--color-texto-secundario);
+}
+
+.rev-grilla {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 8px;
+}
+
+.rev-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.rev-campo-ancho {
+  grid-column: 1 / -1;
+}
+
+.rev-campo label {
+  font-size: 0.78rem;
+  color: var(--color-texto-secundario);
+}
+
+.rev-campo input {
+  width: 100%;
+  min-width: 0;
+  background: var(--color-fondo);
+  border: 1px solid var(--color-borde);
+  color: var(--color-texto);
+  padding: 8px 9px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.rev-campo input:focus {
+  outline: none;
+  border-color: var(--color-primario);
+}
+
+.rev-campo input[aria-invalid="true"] {
+  border-color: var(--color-error);
+}
+
+.rev-advertencias {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--color-celeste);
+}
+
+.rev-advertencias li {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.rev-raw {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.rev-dia .btn-agregar-ejercicio {
+  margin-top: 10px;
+}
+
+.rev-resumen p {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.rev-resumen .modal-acciones {
+  margin-top: 12px;
+}
+
+.rev-coincide {
+  margin: 8px 0 0;
+}

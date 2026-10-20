@@ -518,6 +518,31 @@ GYMAPP.storage = (function () {
     return bloqueoMigracion;
   }
 
+  /* E6 (y futuros cambios grandes): guarda `datosNuevos` con una copia
+     previa del texto crudo actual en `claveCopia` ({ data_raw, fecha }).
+     Orden: leer el texto actual → escribir la copia (si falla, aborta sin
+     tocar nada) → un único save(). setItem no escribe a medias: si el save
+     falla, gymNutritionTracker queda como estaba. La copia no se borra
+     automáticamente (la siguiente operación del mismo tipo la reemplaza).
+     Devuelve { ok } o { ok: false, motivo: "leer" | "copia" | "guardar" }. */
+  function guardarConCopiaPrevia(claveCopia, datosNuevos, fecha) {
+    if (bloqueoMigracion || bloqueadoPorVersionFutura) return { ok: false, motivo: "guardar" };
+    var raw;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      return { ok: false, motivo: "leer" };
+    }
+    try {
+      localStorage.setItem(claveCopia, JSON.stringify({ data_raw: raw, fecha: fecha }));
+    } catch (e) {
+      console.error("No se pudo crear la copia previa " + claveCopia, e);
+      return { ok: false, motivo: "copia" };
+    }
+    if (!save(datosNuevos, { alertaAutomatica: false })) return { ok: false, motivo: "guardar" };
+    return { ok: true };
+  }
+
   /* null, o { motivo } si el backfill E3 no se pudo persistir. */
   function obtenerFalloBackfillE3() {
     return backfillE3Fallido;
@@ -526,6 +551,7 @@ GYMAPP.storage = (function () {
   return {
     getDefaultData: getDefaultData,
     aplicarBackfillsV3: aplicarBackfillsV3,
+    guardarConCopiaPrevia: guardarConCopiaPrevia,
     obtenerFalloBackfillE3: obtenerFalloBackfillE3,
     migrarDatos: migrarDatos,
     validarDatosV3: validarDatosV3,

@@ -274,6 +274,211 @@ GYMAPP.planes = (function () {
     return resultado;
   }
 
+  /* --- Nuevo plan desde un borrador revisado (E6) ---
+     El borrador (pdfImport) no tiene IDs ni fechas de evento: todo eso se
+     genera recién acá, al confirmar. Las funciones son puras: devuelven
+     copias y no escriben nada (la escritura es storage.guardarConCopiaPrevia). */
+
+  /* Generador de IDs inyectable para tests (null = el real). */
+  var generadorIds = null;
+
+  function configurarGeneradorIds(fn) {
+    generadorIds = typeof fn === "function" ? fn : null;
+  }
+
+  function idAleatorio() {
+    if (generadorIds) return String(generadorIds());
+    var c = window.crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    return GYMAPP.util.generarId() + GYMAPP.util.generarId();
+  }
+
+  /* Todos los IDs que ya existen: planes, días y ejercicios de todos los
+     planes, y los dia_rutina_id / ejercicio_id de todas las sesiones (así
+     un ID nuevo nunca coincide con uno histórico). */
+  function idsUsados(data) {
+    var usados = {};
+    planesValidos(data).forEach(function (p) {
+      usados[p.plan_id] = true;
+      p.dias.forEach(function (d) {
+        if (!d) return;
+        usados[d.id] = true;
+        (d.ejercicios || []).forEach(function (e) { if (e) usados[e.id] = true; });
+      });
+    });
+    ((data && data.sesiones_entrenamiento) || []).forEach(function (s) {
+      if (!s) return;
+      if (s.dia_rutina_id) usados[s.dia_rutina_id] = true;
+      (s.ejercicios_realizados || []).forEach(function (er) { if (er) usados[er.ejercicio_id] = true; });
+    });
+    return usados;
+  }
+
+  function idNuevo(usados, prefijo) {
+    for (var i = 0; i < 20; i++) {
+      var id = prefijo + idAleatorio();
+      if (!usados[id]) {
+        usados[id] = true;
+        return id;
+      }
+    }
+    throw new Error("No se pudo generar un identificador único.");
+  }
+
+  function textoONull(v) {
+    if (v === null || v === undefined) return null;
+    var t = String(v).replace(/\s+/g, " ").trim();
+    return t ? t : null;
+  }
+
+  function valorPrescripcion(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    return textoONull(v);
+  }
+
+  /* Borrador revisado → plan schema 3 con IDs nuevos (días y ejercicios
+     NUNCA reutilizan IDs de otros planes, aunque se llamen igual).
+     opciones: { ahora (ISO), nombreArchivo, versionDe, usados }. */
+  function crearPlanDesdeBorrador(borrador, opciones) {
+    var usados = opciones.usados || {};
+    return {
+      plan_id: idNuevo(usados, "plan-"),
+      nombre: textoONull(borrador.nombre),
+      fecha_inicio: textoONull(borrador.fecha_inicio),
+      fecha_fin: textoONull(borrador.fecha_fin),
+      origen: "pdf",
+      version_de: opciones.versionDe || null,
+      creado_en: opciones.ahora,
+      archivado_en: null,
+      fuente: { tipo: "pdf", nombre_archivo: textoONull(opciones.nombreArchivo) },
+      dias: (borrador.dias || []).map(function (dia, i) {
+        return {
+          id: idNuevo(usados, ""),
+          nombre: textoONull(dia.nombre),
+          orden: i + 1,
+          ejercicios: (dia.ejercicios || []).map(function (e, j) {
+            return {
+              id: idNuevo(usados, ""),
+              nombre: textoONull(e.nombre),
+              grupo_muscular: textoONull(e.grupo_muscular),
+              series_objetivo: typeof e.series_objetivo === "number" && isFinite(e.series_objetivo) ? e.series_objetivo : null,
+              reps_objetivo: textoONull(e.reps_objetivo),
+              rir_objetivo: valorPrescripcion(e.rir_objetivo),
+              rpe_objetivo: valorPrescripcion(e.rpe_objetivo),
+              peso_objetivo: valorPrescripcion(e.peso_objetivo),
+              pausa: valorPrescripcion(e.pausa),
+              comentarios: textoONull(e.comentarios),
+              raw: textoONull(e.raw),
+              eliminado: false,
+              orden: j + 1
+            };
+          })
+        };
+      })
+    };
+  }
+
+  /* Estructura de un plan nuevo. null o el primer problema. */
+  function validarNuevoPlan(plan) {
+    if (!plan || typeof plan.plan_id !== "string" || !plan.plan_id) return "El plan no tiene identificador.";
+    var meta = validarMetadataPlan({ nombre: plan.nombre || "", fecha_inicio: plan.fecha_inicio || "", fecha_fin: plan.fecha_fin || "" });
+    if (!meta.ok) return meta.error;
+    if (!Array.isArray(plan.dias) || !plan.dias.length) return "El plan no tiene días.";
+    var ids = {};
+    var ejercicios = 0;
+    var ok = function (v) { return v === null || typeof v === "string" || (typeof v === "number" && isFinite(v)); };
+    for (var i = 0; i < plan.dias.length; i++) {
+      var d = plan.dias[i];
+      if (!d.nombre) return "Falta el nombre del día " + (i + 1) + ".";
+      if (d.orden !== i + 1 || ids[d.id]) return "Los días del plan no son válidos.";
+      ids[d.id] = true;
+      for (var j = 0; j < d.ejercicios.length; j++) {
+        var e = d.ejercicios[j];
+        if (!e.nombre) return "Falta el nombre de un ejercicio en " + d.nombre + ".";
+        if (e.orden !== j + 1 || ids[e.id]) return "Los ejercicios del plan no son válidos.";
+        if (e.series_objetivo !== null && !(Number.isInteger(e.series_objetivo) && e.series_objetivo > 0)) return "Las series de " + e.nombre + " no son válidas.";
+        if (!ok(e.reps_objetivo) || !ok(e.rir_objetivo) || !ok(e.rpe_objetivo) || !ok(e.peso_objetivo) || !ok(e.pausa)) return "La prescripción de " + e.nombre + " no es válida.";
+        ids[e.id] = true;
+        ejercicios += 1;
+      }
+    }
+    if (!ejercicios) return "El plan no tiene ejercicios.";
+    return null;
+  }
+
+  /* Copia de `data` con el plan activo archivado (archivado_en, si no lo
+     tenía) y `nuevoPlan` agregado AL FINAL y activo. No toca días,
+     ejercicios ni otros campos de ningún plan existente, ni sesiones. */
+  function reemplazarPlanActivo(data, nuevoPlan, timestamp) {
+    var copia = JSON.parse(JSON.stringify(data));
+    var anterior = planActivo(copia);
+    if (!anterior) throw new Error("No hay un plan activo válido.");
+    if (anterior.archivado_en === null || anterior.archivado_en === undefined) anterior.archivado_en = timestamp;
+    copia.rutina.planes.push(JSON.parse(JSON.stringify(nuevoPlan)));
+    copia.rutina.plan_activo_id = nuevoPlan.plan_id;
+    return copia;
+  }
+
+  /* Invariantes del cambio de plan: null o el problema. */
+  function verificarCambioDePlan(antes, despues, nuevoPlan) {
+    var mismo = function (a, b) { return JSON.stringify(a) === JSON.stringify(b); };
+    if (despues.schema_version !== 3 || "dias" in despues.rutina) return "Formato inválido.";
+    var planesAntes = antes.rutina.planes, planesDespues = despues.rutina.planes;
+    if (planesDespues.length !== planesAntes.length + 1) return "No se agregó exactamente un plan.";
+    if (!mismo(planesDespues[planesDespues.length - 1], nuevoPlan) || despues.rutina.plan_activo_id !== nuevoPlan.plan_id) return "El nuevo plan no quedó activo.";
+    for (var i = 0; i < planesAntes.length; i++) {
+      var a = planesAntes[i], b = planesDespues[i];
+      if (a.plan_id === antes.rutina.plan_activo_id) {
+        var sinArchivo = JSON.parse(JSON.stringify(b));
+        sinArchivo.archivado_en = a.archivado_en;
+        if (!mismo(sinArchivo, a) || !b.archivado_en) return "El plan anterior cambió.";
+      } else if (!mismo(a, b)) {
+        return "Cambió un plan histórico.";
+      }
+    }
+    var claves = Object.keys(antes).concat(Object.keys(despues)).filter(function (k) { return k !== "rutina"; });
+    for (var k = 0; k < claves.length; k++) {
+      if (!mismo(antes[claves[k]], despues[claves[k]])) return "Cambió " + claves[k] + ".";
+    }
+    return null;
+  }
+
+  /* Todo el cambio de plan en memoria: plan nuevo con IDs nuevos y
+     version_de = plan activo, plan anterior archivado con el mismo instante,
+     validaciones. { ok, datos, plan } o { ok: false, error }. No escribe. */
+  function prepararCambioDePlan(data, borrador, opciones) {
+    var anterior = planActivo(data);
+    if (!anterior) return { ok: false, error: "No hay un plan activo válido." };
+    var plan;
+    try {
+      plan = crearPlanDesdeBorrador(borrador, { ahora: opciones.ahora, nombreArchivo: opciones.nombreArchivo, versionDe: anterior.plan_id, usados: idsUsados(data) });
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+    var error = validarNuevoPlan(plan);
+    if (error) return { ok: false, error: error };
+    var datos = reemplazarPlanActivo(data, plan, opciones.ahora);
+    error = GYMAPP.storage.validarDatosV3(datos) || verificarCambioDePlan(data, datos, plan);
+    if (error) return { ok: false, error: "No se pudo preparar el nuevo plan: " + error };
+    return { ok: true, datos: datos, plan: plan };
+  }
+
+  /* true si el borrador tiene los mismos días y ejercicios (nombres y
+     prescripción) que `plan`. Solo para advertir; no deduplica. */
+  function borradorCoincideConPlan(borrador, plan) {
+    if (!plan || !borrador) return false;
+    var clave = function (dias) {
+      return JSON.stringify((dias || []).map(function (d) {
+        return [String(textoONull(d.nombre) || "").toLowerCase(), (d.ejercicios || []).map(function (e) {
+          return [String(textoONull(e.nombre) || "").toLowerCase(), e.series_objetivo == null ? null : e.series_objetivo,
+            textoONull(e.reps_objetivo), valorPrescripcion(e.rir_objetivo), valorPrescripcion(e.rpe_objetivo), valorPrescripcion(e.peso_objetivo), valorPrescripcion(e.pausa)];
+        })];
+      }));
+    };
+    return clave(borrador.dias) === clave(plan.dias);
+  }
+
   /* --- Mutación (solo dentro de storage.updateData) --- */
 
   function exigirPlanActivo(data) {
@@ -353,6 +558,12 @@ GYMAPP.planes = (function () {
     validarSesionContraPlanActivo: validarSesionContraPlanActivo,
     vincularSesionAlPlanActivo: vincularSesionAlPlanActivo,
     conservarVinculoPlan: conservarVinculoPlan,
+    configurarGeneradorIds: configurarGeneradorIds,
+    crearPlanDesdeBorrador: crearPlanDesdeBorrador,
+    validarNuevoPlan: validarNuevoPlan,
+    reemplazarPlanActivo: reemplazarPlanActivo,
+    prepararCambioDePlan: prepararCambioDePlan,
+    borradorCoincideConPlan: borradorCoincideConPlan,
     agregarDiaAlPlanActivo: agregarDiaAlPlanActivo,
     eliminarDiaDelPlanActivo: eliminarDiaDelPlanActivo,
     agregarEjercicioADiaActivo: agregarEjercicioADiaActivo,

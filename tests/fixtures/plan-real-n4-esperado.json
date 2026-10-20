@@ -1,0 +1,518 @@
+{
+ "_origen": "Expectativas transcriptas a mano de la lectura visual del PDF real del plan (no incluido en el repo). Solo para el test de integración; el parser no las usa. Sin datos personales: el nombre del plan se verifica contra el propio PDF en tiempo de ejecución.",
+ "fecha_inicio": "2026-10-12",
+ "fecha_fin": "2026-12-18",
+ "dias": [
+  {
+   "nombre": "EMPUJE",
+   "ejercicios": [
+    {
+     "nombre": "ADUCCION ESCAPULAR C/BANDA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "CANDELABRO NIVEL 3",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": "NO ES NECESARIO ESTAR ARRODILLADO"
+    },
+    {
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "FLEXIONES DE BRAZO EN CAJON BAJO O STEP",
+     "series_objetivo": 2,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": "30''",
+     "comentarios": null
+    },
+    {
+     "nombre": "PRESS INCLINADO EN SMITH",
+     "series_objetivo": 4,
+     "reps_objetivo": "8",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 8,
+     "pausa": "2'",
+     "comentarios": "SI ESTA OCUPADA, USAR LA BARRA DE ARRIBA"
+    },
+    {
+     "nombre": "PRESS BANCA C/MANCUERNAS",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "CRUCES EN POLEA (ALTO)",
+     "series_objetivo": 3,
+     "reps_objetivo": "9-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "PRESS MILITAR ARRODILLADO CON MANCUERNAS",
+     "series_objetivo": 3,
+     "reps_objetivo": "10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "FONDOS EN PARALELAS",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 9,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "TRICEPS EN POLEA BARRA PLANA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": "2-3",
+     "rpe_objetivo": 8,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "PRESS PALLOF EN POSICION DE ESTOCADA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 1,
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "SIT UPS",
+     "series_objetivo": 3,
+     "reps_objetivo": "8-10",
+     "rir_objetivo": 1,
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": "SOSTENGO UN DISCO Y ELEVO SOBRE LA CABEZA"
+    }
+   ]
+  },
+  {
+   "nombre": "PIERNAS (ANTERIOR)",
+   "ejercicios": [
+    {
+     "nombre": "MOVILIDAD DE CADERA 90/90 COMPLETA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "MOVIMIENTO DE ABDUCCIÓN EN CUADRUPEDIA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "SALUDO AL SOL + CARPA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "DE ARRODILLADO A PARADO CON SALTO SOBRE CAJON",
+     "series_objetivo": 2,
+     "reps_objetivo": "8 (5'')",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "SENTADILLA C/BARRA",
+     "series_objetivo": 4,
+     "reps_objetivo": "7-10",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 9,
+     "pausa": "2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "ESTOCADAS CAMINANDO",
+     "series_objetivo": 4,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "ELEVACIONES DE CADERA EN BANCO C/BARRA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": "UNILATERAL, CON MANCUERNAS"
+    },
+    {
+     "nombre": "SILLON DE CUADRICEPS",
+     "series_objetivo": 3,
+     "reps_objetivo": "12-14",
+     "rir_objetivo": "2-3",
+     "rpe_objetivo": 8,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "FARMER CARRY",
+     "series_objetivo": 3,
+     "reps_objetivo": "12/12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1´",
+     "comentarios": null
+    }
+   ]
+  },
+  {
+   "nombre": "TRACCIÓN",
+   "ejercicios": [
+    {
+     "nombre": "ADUCCION ESCAPULAR C/BANDA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "CANDELABRO NIVEL 3",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "ACTIVACION ESCAPULAR COLGADO",
+     "series_objetivo": 2,
+     "reps_objetivo": "8-10",
+     "rir_objetivo": null,
+     "rpe_objetivo": 8,
+     "pausa": "30''",
+     "comentarios": null
+    },
+    {
+     "nombre": "DOMINADAS TOMA NEUTRA",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-8",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 9,
+     "pausa": "2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "PULL OVER EN POLEA",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "REMO BAJO POLEA TOMA UNILATERAL",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "FACE PULL AL PISO",
+     "series_objetivo": 3,
+     "reps_objetivo": "10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 7,
+     "pausa": "1-2'",
+     "comentarios": "EN POSICIÓN DE ESTOCADA"
+    },
+    {
+     "nombre": "BICEPS MARTILLO EN POLEA",
+     "series_objetivo": 3,
+     "reps_objetivo": "9-12",
+     "rir_objetivo": "2-3",
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "CURL 21 CON BARRA",
+     "series_objetivo": 3,
+     "reps_objetivo": "7-7-7",
+     "rir_objetivo": 1,
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "LUMBARES EN MAQUINA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 1,
+     "rpe_objetivo": 9,
+     "pausa": "30''",
+     "comentarios": "SOSTENGO DISCO DE 10 KG O MÁS SOBRE EL PECHO"
+    },
+    {
+     "nombre": "DOMINADA ISOMETRICA",
+     "series_objetivo": 3,
+     "reps_objetivo": "15-30''",
+     "rir_objetivo": 1,
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": null
+    }
+   ]
+  },
+  {
+   "nombre": "PIERNAS (POSTERIOR)",
+   "ejercicios": [
+    {
+     "nombre": "MOVILIDAD DE CADERA 90/90 DINAMICA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "CUA+ PSOAS + ISQUIO DESDE ESTOCADA EN SUELO",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "SALUDO AL SOL + CARPA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "DE ARRODILLADO A PARADO CON SALTO SOBRE CAJON",
+     "series_objetivo": 2,
+     "reps_objetivo": "8 (5'')",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "PESO MUERTO EN STEP CON BANDA",
+     "series_objetivo": 4,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": "AL EXTENDER, EXTIENDO TMBIÉN RODILLA"
+    },
+    {
+     "nombre": "ESTOCADA BULGARA - COREBAG",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "SILLON DE ISQUIOTIBIALES",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "SENTADILLA SUMO CON KB",
+     "series_objetivo": 3,
+     "reps_objetivo": "12",
+     "rir_objetivo": "2-3",
+     "rpe_objetivo": 7,
+     "pausa": "1'",
+     "comentarios": null
+    },
+    {
+     "nombre": "STEP UP CON ELEVACION DE HOMBROS",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    }
+   ]
+  },
+  {
+   "nombre": "UPPER",
+   "ejercicios": [
+    {
+     "nombre": "ADUCCION ESCAPULAR C/BANDA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "MANGUITO ROTADOR CON BANDA (NIVEL 3)",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "CANDELABRO NIVEL 3",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "ROTACION TORACICA EN CUADRUPEDIA CON BRAZOS EXTENDIDOS",
+     "series_objetivo": 2,
+     "reps_objetivo": "8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "HALO SOBRE 1 PIERNA",
+     "series_objetivo": 2,
+     "reps_objetivo": "8/8",
+     "rir_objetivo": null,
+     "rpe_objetivo": null,
+     "pausa": null,
+     "comentarios": null
+    },
+    {
+     "nombre": "PRESS BANCA C/BARRA",
+     "series_objetivo": 4,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "POLEA DORSAL AL PECHO TOMA AMPLIA",
+     "series_objetivo": 4,
+     "reps_objetivo": "9-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "VUELOS LATERALES EN POLEA",
+     "series_objetivo": 4,
+     "reps_objetivo": "6-9",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "BICEPS C/BARRA PLANA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "PRESS FRANCES C/BARRA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10-12",
+     "rir_objetivo": 2,
+     "rpe_objetivo": 8,
+     "pausa": "1-2'",
+     "comentarios": null
+    },
+    {
+     "nombre": "LANZAMIENTO DE PELOTA LATERAL",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": "EN POSICIÓN DE ESTOCADA"
+    },
+    {
+     "nombre": "PRESS PALLOF EN POSICION DE ESTOCADA",
+     "series_objetivo": 3,
+     "reps_objetivo": "10/10",
+     "rir_objetivo": "1-2",
+     "rpe_objetivo": 9,
+     "pausa": "1'",
+     "comentarios": null
+    }
+   ]
+  }
+ ]
+}
