@@ -274,6 +274,159 @@ GYMAPP.planes = (function () {
     return resultado;
   }
 
+  /* --- Reasignación manual de una sesión de gimnasio (E6.1) ---
+     Corrige UNA sesión vinculada al plan equivocado. Solo cambian plan_id,
+     dia_rutina_id y, en cada ejercicio realizado, ejercicio_id y
+     prescripcion_snapshot (del ejercicio destino elegido por el usuario).
+     Nada de lo que se hizo en el gimnasio cambia. Funciones puras. */
+
+  var SIN_CORRESPONDENCIA = "__ninguno__";
+
+  /* Solo para SUGERIR: sin acentos, minúsculas, espacios simples. */
+  function normalizarNombre(nombre) {
+    return String(nombre || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function buscarSesion(data, sesionId) {
+    return ((data && data.sesiones_entrenamiento) || []).filter(function (s) { return s && s.id === sesionId; })[0] || null;
+  }
+
+  /* Planes posibles como destino: el activo primero, después los demás en
+     el orden de rutina.planes. [{ plan, activo }]. */
+  function planesParaReasignar(data) {
+    var activo = planActivo(data);
+    var lista = activo ? [{ plan: activo, activo: true }] : [];
+    planesHistoricos(data).forEach(function (p) { lista.push({ plan: p, activo: false }); });
+    return lista;
+  }
+
+  /* Día destino sugerido: el mismo día si la sesión ya es de ese plan; si
+     no, el único día del plan con el mismo nombre normalizado; si no, null. */
+  function sugerirDiaDestino(data, sesion, planId) {
+    var plan = buscarPlan(data, planId);
+    if (!plan || !Array.isArray(plan.dias)) return null;
+    var mismo = plan.dias.filter(function (d) { return d && d.id === sesion.dia_rutina_id; })[0];
+    if (mismo) return mismo.id;
+    var nombre = normalizarNombre(GYMAPP.rutinasHistoricas.resolverNombreDiaDeSesion(data, sesion));
+    var iguales = plan.dias.filter(function (d) { return d && normalizarNombre(d.nombre) === nombre; });
+    return iguales.length === 1 ? iguales[0].id : null;
+  }
+
+  /* { ejercicio_id original: id destino | "" }. Sugiere SOLO coincidencias
+     exactas de nombre normalizado y únicas; nunca equivalencias. */
+  function sugerirMapeoEjercicios(data, sesion, planId, diaId) {
+    var plan = buscarPlan(data, planId);
+    var dia = plan && Array.isArray(plan.dias) ? plan.dias.filter(function (d) { return d && d.id === diaId; })[0] : null;
+    var destinos = dia ? (dia.ejercicios || []) : [];
+    var usados = {};
+    var mapeo = {};
+    (sesion.ejercicios_realizados || []).forEach(function (er) {
+      var resuelto = GYMAPP.rutinasHistoricas.resolverEjercicioDeSesion(data, sesion, er);
+      var nombre = normalizarNombre(resuelto ? resuelto.nombre : "");
+      var iguales = destinos.filter(function (e) { return e && nombre && normalizarNombre(e.nombre) === nombre; });
+      mapeo[er.ejercicio_id] = iguales.length === 1 && !usados[iguales[0].id] ? iguales[0].id : "";
+      if (mapeo[er.ejercicio_id]) usados[mapeo[er.ejercicio_id]] = true;
+    });
+    return mapeo;
+  }
+
+  /* Errores de una elección { planId, diaId, mapeo }: lista de
+     { ejercicio_id (original) | null, mensaje }. Vacía = se puede guardar. */
+  function validarReasignacion(data, sesionId, eleccion) {
+    var errores = [];
+    var sesion = buscarSesion(data, sesionId);
+    if (!sesion || sesion.tipo !== "gimnasio") return [{ ejercicio_id: null, mensaje: "La sesión no existe o no es de gimnasio." }];
+    var plan = buscarPlan(data, eleccion.planId);
+    if (!plan || !Array.isArray(plan.dias)) return [{ ejercicio_id: null, mensaje: "El plan destino no existe." }];
+    var dia = plan.dias.filter(function (d) { return d && d.id === eleccion.diaId; })[0];
+    if (!dia) return [{ ejercicio_id: null, mensaje: "Elegí un día del plan destino." }];
+    var originales = (sesion.ejercicios_realizados || []).map(function (er) { return er.ejercicio_id; });
+    if (originales.some(function (id, i) { return originales.indexOf(id) !== i; })) {
+      return [{ ejercicio_id: null, mensaje: "La sesión tiene ejercicios repetidos y no se puede reasignar." }];
+    }
+    var idsDia = (dia.ejercicios || []).map(function (e) { return e.id; });
+    var asignados = {};
+    var mapeo = eleccion.mapeo || {};
+    var hayNinguno = false;
+    originales.forEach(function (orig) {
+      var destino = mapeo[orig];
+      if (destino === SIN_CORRESPONDENCIA) {
+        hayNinguno = true;
+        errores.push({ ejercicio_id: orig, mensaje: "No corresponde a ningún ejercicio." });
+      } else if (!destino) {
+        errores.push({ ejercicio_id: orig, mensaje: "Elegí el ejercicio correspondiente." });
+      } else if (idsDia.indexOf(destino) === -1) {
+        errores.push({ ejercicio_id: orig, mensaje: "Ese ejercicio no pertenece al día destino." });
+      } else if (asignados[destino]) {
+        errores.push({ ejercicio_id: orig, mensaje: "Este ejercicio del plan destino ya está asignado." });
+      } else {
+        asignados[destino] = true;
+      }
+    });
+    if (hayNinguno) errores.push({ ejercicio_id: null, mensaje: "Para reasignar la sesión, todos los ejercicios realizados deben vincularse con un ejercicio del plan destino." });
+    if (!errores.length && sesion.plan_id === plan.plan_id && sesion.dia_rutina_id === dia.id &&
+        originales.every(function (orig) { return mapeo[orig] === orig; })) {
+      errores.push({ ejercicio_id: null, mensaje: "La sesión ya está vinculada a ese plan, día y ejercicios." });
+    }
+    return errores;
+  }
+
+  /* Invariantes: solo cambian plan_id, dia_rutina_id, ejercicio_id y
+     prescripcion_snapshot de ESA sesión. null o el problema. */
+  function verificarReasignacion(antes, despues, sesionId) {
+    var mismo = function (a, b) { return JSON.stringify(a) === JSON.stringify(b); };
+    var sa = antes.sesiones_entrenamiento, sd = despues.sesiones_entrenamiento;
+    if (sa.length !== sd.length) return "Cambió la cantidad de sesiones.";
+    for (var i = 0; i < sa.length; i++) {
+      if (sa[i].id !== sd[i].id) return "Cambió el orden o el id de las sesiones.";
+      if (sa[i].id !== sesionId) {
+        if (!mismo(sa[i], sd[i])) return "Cambió otra sesión.";
+        continue;
+      }
+      var a = sa[i], b = sd[i];
+      var claves = Object.keys(a).concat(Object.keys(b)).filter(function (k) { return ["plan_id", "dia_rutina_id", "ejercicios_realizados"].indexOf(k) === -1; });
+      for (var k = 0; k < claves.length; k++) if (!mismo(a[claves[k]], b[claves[k]])) return "Cambió " + claves[k] + " de la sesión.";
+      var ea = a.ejercicios_realizados || [], eb = b.ejercicios_realizados || [];
+      if (ea.length !== eb.length) return "Cambió la cantidad de ejercicios realizados.";
+      for (var j = 0; j < ea.length; j++) {
+        var cs = Object.keys(ea[j]).concat(Object.keys(eb[j])).filter(function (x) { return x !== "ejercicio_id" && x !== "prescripcion_snapshot"; });
+        for (var c = 0; c < cs.length; c++) if (!mismo(ea[j][cs[c]], eb[j][cs[c]])) return "Cambiaron los datos de ejecución (" + cs[c] + ").";
+      }
+    }
+    var otras = Object.keys(antes).concat(Object.keys(despues)).filter(function (x) { return x !== "sesiones_entrenamiento"; });
+    for (var o = 0; o < otras.length; o++) if (!mismo(antes[otras[o]], despues[otras[o]])) return "Cambió " + otras[o] + ".";
+    return null;
+  }
+
+  /* Reasignación completa en memoria: valida, arma la sesión corregida y
+     verifica invariantes. { ok, datos, sesion } o { ok: false, error, errores }. */
+  function prepararReasignacionSesion(data, sesionId, eleccion) {
+    var errores = validarReasignacion(data, sesionId, eleccion);
+    if (errores.length) {
+      var general = errores.filter(function (e) { return e.ejercicio_id === null; })[0] || errores[0];
+      return { ok: false, error: general.mensaje, errores: errores };
+    }
+    var plan = buscarPlan(data, eleccion.planId);
+    var dia = plan.dias.filter(function (d) { return d.id === eleccion.diaId; })[0];
+    var datos = JSON.parse(JSON.stringify(data));
+    var indice = datos.sesiones_entrenamiento.findIndex(function (s) { return s.id === sesionId; });
+    var original = datos.sesiones_entrenamiento[indice];
+    var nueva = conPlanId(original, plan.plan_id);
+    nueva.dia_rutina_id = dia.id;
+    nueva.ejercicios_realizados = (original.ejercicios_realizados || []).map(function (er) {
+      var destino = dia.ejercicios.filter(function (e) { return e.id === eleccion.mapeo[er.ejercicio_id]; })[0];
+      var copia = {};
+      Object.keys(er).forEach(function (k) { copia[k] = er[k]; });
+      copia.ejercicio_id = destino.id;
+      copia.prescripcion_snapshot = crearSnapshotPrescripcion(destino);
+      return copia;
+    });
+    datos.sesiones_entrenamiento[indice] = nueva;
+    var error = GYMAPP.storage.validarDatosV3(datos) || verificarReasignacion(data, datos, sesionId);
+    if (error) return { ok: false, error: "No se pudo preparar la reasignación: " + error, errores: [] };
+    return { ok: true, datos: datos, sesion: nueva };
+  }
+
   /* --- Nuevo plan desde un borrador revisado (E6) ---
      El borrador (pdfImport) no tiene IDs ni fechas de evento: todo eso se
      genera recién acá, al confirmar. Las funciones son puras: devuelven
@@ -559,6 +712,13 @@ GYMAPP.planes = (function () {
     vincularSesionAlPlanActivo: vincularSesionAlPlanActivo,
     conservarVinculoPlan: conservarVinculoPlan,
     configurarGeneradorIds: configurarGeneradorIds,
+    SIN_CORRESPONDENCIA: SIN_CORRESPONDENCIA,
+    planesParaReasignar: planesParaReasignar,
+    sugerirDiaDestino: sugerirDiaDestino,
+    sugerirMapeoEjercicios: sugerirMapeoEjercicios,
+    validarReasignacion: validarReasignacion,
+    verificarReasignacion: verificarReasignacion,
+    prepararReasignacionSesion: prepararReasignacionSesion,
     crearPlanDesdeBorrador: crearPlanDesdeBorrador,
     validarNuevoPlan: validarNuevoPlan,
     reemplazarPlanActivo: reemplazarPlanActivo,

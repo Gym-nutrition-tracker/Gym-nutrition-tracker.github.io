@@ -524,8 +524,9 @@ GYMAPP.storage = (function () {
      tocar nada) → un único save(). setItem no escribe a medias: si el save
      falla, gymNutritionTracker queda como estaba. La copia no se borra
      automáticamente (la siguiente operación del mismo tipo la reemplaza).
+     `extra` (opcional) agrega campos a la copia (por ejemplo sesion_id).
      Devuelve { ok } o { ok: false, motivo: "leer" | "copia" | "guardar" }. */
-  function guardarConCopiaPrevia(claveCopia, datosNuevos, fecha) {
+  function guardarConCopiaPrevia(claveCopia, datosNuevos, fecha, extra) {
     if (bloqueoMigracion || bloqueadoPorVersionFutura) return { ok: false, motivo: "guardar" };
     var raw;
     try {
@@ -534,7 +535,9 @@ GYMAPP.storage = (function () {
       return { ok: false, motivo: "leer" };
     }
     try {
-      localStorage.setItem(claveCopia, JSON.stringify({ data_raw: raw, fecha: fecha }));
+      var copia = { data_raw: raw, fecha: fecha };
+      Object.keys(extra || {}).forEach(function (k) { copia[k] = extra[k]; });
+      localStorage.setItem(claveCopia, JSON.stringify(copia));
     } catch (e) {
       console.error("No se pudo crear la copia previa " + claveCopia, e);
       return { ok: false, motivo: "copia" };

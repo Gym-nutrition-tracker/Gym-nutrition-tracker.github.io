@@ -111,6 +111,8 @@ GYMAPP.entrenamiento = (function () {
         ? '<button type="button" data-accion="cancelar-edicion" class="btn btn-secundario">Cancelar edición</button>'
         : "") +
       renderHistorial(data) +
+      /* E6.1: el contenedor del panel existe solo mientras está abierto. */
+      (reasignacion ? '<div id="entrenar-modal">' + renderModalReasignacion(data) + "</div>" : "") +
       "</div>"
     );
   }
@@ -237,7 +239,8 @@ GYMAPP.entrenamiento = (function () {
      queremos hacer al editar un registro histórico. */
   function renderGimnasioEdicion(estado) {
     var nombreDia = estado.nombreDiaHistorico || GYMAPP.rutinasHistoricas.NOMBRE_BLOQUE_DESCONOCIDO;
-    var html = '<div class="campo"><label>Día de rutina</label><p class="nota">' + GYMAPP.util.escapeHtml(nombreDia) + "</p></div>";
+    var html = '<div class="campo"><label>Día de rutina</label><p class="nota">' + GYMAPP.util.escapeHtml(nombreDia) + "</p>" +
+      '<button type="button" data-accion="reasignar-sesion" class="btn-enlace btn-reasignar">Reasignar a otro plan</button></div>';
 
     if (!estado.ejerciciosHistoricos.length) {
       return html + '<p class="nota">Esta sesión no tiene ejercicios registrados.</p>';
@@ -585,10 +588,28 @@ GYMAPP.entrenamiento = (function () {
         render(container);
       } else if (accion === "borrar-sesion") {
         borrarSesion(container, boton.dataset.sesionId);
+      } else if (accion === "reasignar-sesion") {
+        abrirReasignacion(container);
+      } else if (accion === "reasig-cancelar") {
+        cerrarReasignacion(container);
+      } else if (accion === "reasig-confirmar") {
+        confirmarReasignacion(container);
       }
     });
 
+    /* E6.1: cerrar el panel de reasignación tocando afuera o con Escape. */
+    container.addEventListener("click", function (ev) {
+      if (reasignacion && ev.target.classList && ev.target.classList.contains("modal-fondo")) cerrarReasignacion(container);
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && reasignacion && container.querySelector("#entrenar-modal .modal")) cerrarReasignacion(container);
+    });
+
     container.addEventListener("change", function (ev) {
+      if (reasignacion && ev.target.closest && ev.target.closest("#entrenar-modal")) {
+        cambiarReasignacion(container, ev.target);
+        return;
+      }
       if (ev.target.id === "select-dia-rutina") {
         estado.diaRutinaId = ev.target.value;
         render(container);
@@ -621,6 +642,204 @@ GYMAPP.entrenamiento = (function () {
         if (lista && lista[indice]) lista[indice][target.dataset.campo] = target.value;
       }
     });
+  }
+
+  /* --- E6.1: reasignar una sesión de gimnasio a otro plan/día ---
+     Trabaja sobre la sesión GUARDADA (no sobre cambios sin guardar de la
+     edición). Nada se escribe hasta "Confirmar reasignación". */
+
+  var CLAVE_PRE_REASIGNAR = "gymNutritionTracker_preReasignarSesion";
+  /* { sesionId, planId, diaId, mapeo: { ejercicio_id original: destino }, intento } */
+  var reasignacion = null;
+
+  function escaparAtributo(v) {
+    return GYMAPP.util.escapeHtml(v).replace(/"/g, "&quot;");
+  }
+
+  function nombrePlanReasignar(plan, activo) {
+    var nombre = plan && typeof plan.nombre === "string" && plan.nombre.trim() ? plan.nombre.trim() : (activo ? "Plan actual" : "Plan sin nombre");
+    return nombre + (activo ? " (activo)" : "");
+  }
+
+  function abrirReasignacion(container) {
+    var data = GYMAPP.storage.getData();
+    var sesion = data.sesiones_entrenamiento.filter(function (s) { return s.id === estado.editandoId; })[0];
+    if (!sesion || sesion.tipo !== "gimnasio") return;
+    var activo = GYMAPP.planes.planActivo(data);
+    var planId = activo ? activo.plan_id : null;
+    var diaId = planId ? GYMAPP.planes.sugerirDiaDestino(data, sesion, planId) : null;
+    reasignacion = {
+      sesionId: sesion.id, planId: planId, diaId: diaId,
+      mapeo: diaId ? GYMAPP.planes.sugerirMapeoEjercicios(data, sesion, planId, diaId) : {}, intento: false
+    };
+    pintarReasignacion(container, "reasig-plan");
+  }
+
+  function cerrarReasignacion(container) {
+    reasignacion = null;
+    var destino = container.querySelector("#entrenar-modal");
+    if (destino) destino.parentNode.removeChild(destino);
+    document.body.classList.remove("modal-abierto");
+    var boton = container.querySelector('[data-accion="reasignar-sesion"]');
+    if (boton) boton.focus();
+  }
+
+  /* Re-dibuja solo el panel (sin tocar el formulario de edición). */
+  function pintarReasignacion(container, focoId) {
+    var destino = container.querySelector("#entrenar-modal");
+    if (!destino) {
+      var pantalla = container.querySelector(".pantalla-entrenar");
+      if (!pantalla) return;
+      destino = document.createElement("div");
+      destino.id = "entrenar-modal";
+      pantalla.appendChild(destino);
+    }
+    var modal = destino.querySelector(".modal");
+    var scroll = modal ? modal.scrollTop : 0;
+    destino.innerHTML = renderModalReasignacion(GYMAPP.storage.getData());
+    document.body.classList.add("modal-abierto");
+    var nuevo = destino.querySelector(".modal");
+    if (nuevo) nuevo.scrollTop = scroll;
+    var foco = focoId ? destino.querySelector("#" + focoId) : nuevo;
+    if (foco) foco.focus({ preventScroll: !!modal });
+  }
+
+  function cambiarReasignacion(container, target) {
+    var data = GYMAPP.storage.getData();
+    var sesion = data.sesiones_entrenamiento.filter(function (s) { return s.id === reasignacion.sesionId; })[0];
+    if (!sesion) return;
+    if (target.id === "reasig-plan") {
+      reasignacion.planId = target.value;
+      reasignacion.diaId = GYMAPP.planes.sugerirDiaDestino(data, sesion, reasignacion.planId);
+      reasignacion.mapeo = reasignacion.diaId ? GYMAPP.planes.sugerirMapeoEjercicios(data, sesion, reasignacion.planId, reasignacion.diaId) : {};
+    } else if (target.id === "reasig-dia") {
+      reasignacion.diaId = target.value || null;
+      reasignacion.mapeo = reasignacion.diaId ? GYMAPP.planes.sugerirMapeoEjercicios(data, sesion, reasignacion.planId, reasignacion.diaId) : {};
+    } else if (target.dataset.reasigOrig !== undefined) {
+      reasignacion.mapeo[target.dataset.reasigOrig] = target.value;
+    } else {
+      return;
+    }
+    pintarReasignacion(container, target.id);
+  }
+
+  function renderModalReasignacion(data) {
+    var esc = GYMAPP.util.escapeHtml;
+    var r = reasignacion;
+    var sesion = data.sesiones_entrenamiento.filter(function (s) { return s.id === r.sesionId; })[0];
+    if (!sesion) return "";
+    var opciones = GYMAPP.planes.planesParaReasignar(data);
+    var plan = GYMAPP.planes.buscarPlan(data, r.planId);
+    var dia = plan && r.diaId ? plan.dias.filter(function (d) { return d.id === r.diaId; })[0] : null;
+    var errores = GYMAPP.planes.validarReasignacion(data, sesion.id, { planId: r.planId, diaId: r.diaId, mapeo: r.mapeo });
+    /* Duplicados y "no corresponde" se marcan siempre; lo que falta elegir,
+       recién al intentar confirmar. */
+    var visibles = errores.filter(function (e) { return r.intento || /ya está asignado|No corresponde|todos los ejercicios/.test(e.mensaje); });
+    var errorDe = function (orig) { return visibles.filter(function (e) { return e.ejercicio_id === orig; })[0] || null; };
+    var planOrigen = sesion.plan_id ? GYMAPP.planes.buscarPlan(data, sesion.plan_id) : null;
+    var activoId = data.rutina.plan_activo_id;
+    var vinculados = (sesion.ejercicios_realizados || []).filter(function (er) {
+      return !errores.some(function (e) { return e.ejercicio_id === er.ejercicio_id; }) && r.mapeo[er.ejercicio_id];
+    }).length;
+    var total = (sesion.ejercicios_realizados || []).length;
+
+    var ejercicios = (sesion.ejercicios_realizados || []).map(function (er, i) {
+      var resuelto = GYMAPP.rutinasHistoricas.resolverEjercicioDeSesion(data, sesion, er);
+      var nombre = resuelto ? resuelto.nombre : "Ejercicio sin nombre";
+      var id = "reasig-ej-" + i;
+      var error = errorDe(er.ejercicio_id);
+      var elegido = r.mapeo[er.ejercicio_id] || "";
+      var series = (er.series || []).length;
+      return (
+        '<div class="reasig-ejercicio">' +
+        '<p class="reasig-origen"><span class="nota">Ejercicio registrado</span><br>' + esc(nombre) +
+        ' <span class="nota">· ' + series + (series === 1 ? " serie" : " series") + "</span></p>" +
+        '<label for="' + id + '">Ejercicio destino</label>' +
+        '<select id="' + id + '" data-reasig-orig="' + escaparAtributo(er.ejercicio_id) + '"' +
+        (error ? ' aria-invalid="true" aria-describedby="' + id + '-error"' : "") + ">" +
+        '<option value=""' + (elegido ? "" : " selected") + ">Elegí el ejercicio correspondiente</option>" +
+        (dia ? dia.ejercicios.map(function (e) {
+          return '<option value="' + escaparAtributo(e.id) + '"' + (elegido === e.id ? " selected" : "") + ">" + esc(e.nombre || "(sin nombre)") + "</option>";
+        }).join("") : "") +
+        '<option value="' + GYMAPP.planes.SIN_CORRESPONDENCIA + '"' + (elegido === GYMAPP.planes.SIN_CORRESPONDENCIA ? " selected" : "") + ">No corresponde a ningún ejercicio</option>" +
+        "</select>" +
+        '<p id="' + id + '-error" class="campo-error-texto' + (error ? "" : " oculto") + '">' + (error ? esc(error.mensaje) : "") + "</p>" +
+        "</div>"
+      );
+    }).join("");
+
+    var generales = visibles.filter(function (e) { return e.ejercicio_id === null; });
+    return (
+      '<div class="modal-fondo">' +
+      '<div class="modal modal-reasignar" role="dialog" aria-modal="true" aria-labelledby="reasig-titulo" tabindex="-1">' +
+      '<div class="modal-header"><h3 id="reasig-titulo">Reasignar sesión</h3>' +
+      '<button type="button" data-accion="reasig-cancelar" class="btn-icono" aria-label="Cerrar">✕</button></div>' +
+      '<div class="modal-cuerpo">' +
+      '<p class="nota">Vinculá esta sesión con el plan y el día que realmente entrenaste. Se reasigna la sesión tal como está guardada.</p>' +
+      '<div class="campo"><label for="reasig-plan">Plan</label><select id="reasig-plan">' +
+      opciones.map(function (o) {
+        return '<option value="' + escaparAtributo(o.plan.plan_id) + '"' + (o.plan.plan_id === r.planId ? " selected" : "") + ">" + esc(nombrePlanReasignar(o.plan, o.activo)) + "</option>";
+      }).join("") + "</select></div>" +
+      '<div class="campo"><label for="reasig-dia">Día</label><select id="reasig-dia">' +
+      '<option value=""' + (r.diaId ? "" : " selected") + ">Elegí un día</option>" +
+      (plan ? plan.dias.map(function (d) {
+        return '<option value="' + escaparAtributo(d.id) + '"' + (d.id === r.diaId ? " selected" : "") + ">" + esc(d.nombre || "(sin nombre)") + "</option>";
+      }).join("") : "") + "</select></div>" +
+      (dia ? '<h4 class="reasig-subtitulo">Ejercicios</h4>' + (ejercicios || '<p class="nota">Esta sesión no tiene ejercicios registrados.</p>') : "") +
+      '<section class="rev-resumen reasig-resumen" aria-labelledby="reasig-resumen-titulo">' +
+      '<h4 id="reasig-resumen-titulo">Resumen</h4>' +
+      "<p><strong>De:</strong> " + esc(planOrigen ? nombrePlanReasignar(planOrigen, planOrigen.plan_id === activoId) : "Sin plan registrado") +
+      " · " + esc(GYMAPP.rutinasHistoricas.resolverNombreDiaDeSesion(data, sesion)) + "</p>" +
+      "<p><strong>A:</strong> " + esc(plan ? nombrePlanReasignar(plan, plan.plan_id === activoId) : "—") + " · " + esc(dia ? dia.nombre : "—") + "</p>" +
+      "<p><strong>Ejercicios:</strong> " + vinculados + " de " + total + " vinculados</p>" +
+      '<p class="nota">Tus pesos, repeticiones y demás datos de ejecución no se modificarán.</p>' +
+      '<div id="reasig-errores" class="mensaje error' + (generales.length ? "" : " oculto") + '" role="alert">' +
+      esc(generales.map(function (e) { return e.mensaje; }).join(" ")) + "</div>" +
+      '<div class="modal-acciones">' +
+      '<button type="button" data-accion="reasig-cancelar" class="btn-secundario">Cancelar</button>' +
+      '<button type="button" data-accion="reasig-confirmar" class="btn-secundario btn-guardar-plan">Confirmar reasignación</button>' +
+      "</div></section>" +
+      "</div></div></div>"
+    );
+  }
+
+  /* Validación → todo en memoria → copia previa → un único guardado. */
+  function confirmarReasignacion(container) {
+    var r = reasignacion;
+    r.intento = true;
+    var data = GYMAPP.storage.getData();
+    var preparado = GYMAPP.planes.prepararReasignacionSesion(data, r.sesionId, { planId: r.planId, diaId: r.diaId, mapeo: r.mapeo });
+    if (!preparado.ok) {
+      pintarReasignacion(container, "reasig-errores");
+      var primero = container.querySelector('#entrenar-modal [aria-invalid="true"]');
+      if (primero) primero.focus();
+      var errorEl = container.querySelector("#reasig-errores");
+      if (errorEl && errorEl.classList.contains("oculto")) {
+        errorEl.textContent = preparado.error;
+        errorEl.className = "mensaje error";
+      }
+      return;
+    }
+    var ahora = new Date().toISOString();
+    var guardado = GYMAPP.storage.guardarConCopiaPrevia(CLAVE_PRE_REASIGNAR, preparado.datos, ahora, { sesion_id: r.sesionId });
+    if (!guardado.ok) {
+      var el = container.querySelector("#reasig-errores");
+      if (el) {
+        el.textContent = guardado.motivo === "copia"
+          ? "No se pudo crear la copia de seguridad previa. No se cambió nada."
+          : "No se pudo guardar la reasignación. Tus datos anteriores se conservan intactos.";
+        el.className = "mensaje error";
+      }
+      return;
+    }
+    var nuevos = GYMAPP.storage.getData();
+    var plan = GYMAPP.planes.buscarPlan(nuevos, r.planId);
+    var dia = plan.dias.filter(function (d) { return d.id === r.diaId; })[0];
+    reasignacion = null;
+    document.body.classList.remove("modal-abierto");
+    estado = estadoInicial();
+    render(container);
+    mostrarMensaje(container, "Sesión reasignada a " + nombrePlanReasignar(plan, plan.plan_id === nuevos.rutina.plan_activo_id) + " · " + dia.nombre + ". Tus datos de ejecución no cambiaron.", "exito");
   }
 
   function mostrarMensaje(container, texto, tipo) {
