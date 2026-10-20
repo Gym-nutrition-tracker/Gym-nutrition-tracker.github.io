@@ -35,6 +35,29 @@ GYMAPP.planes = (function () {
 
   /* Ejercicios de todos los días del plan activo, en orden (día por día),
      en un array nuevo con las referencias originales. */
+  /* ONB-03: un plan es útil si tiene al menos un ejercicio en alguno de sus
+     días. Misma definición para el primer uso y para el cambio de plan. */
+  function planEsUtil(plan) {
+    return !!plan && Array.isArray(plan.dias) && plan.dias.some(function (d) {
+      return Array.isArray(d.ejercicios) && d.ejercicios.length > 0;
+    });
+  }
+
+  /* Al activar un plan nuevo, el anterior se descarta (no pasa al
+     historial) solo si no es útil y nada lo referencia: ninguna sesión por
+     plan_id o por día, y ningún plan por version_de. Depende solo del
+     contenido, no del nombre, el id ni el origen. */
+  function planDescartableAlReemplazar(data, plan) {
+    if (!plan || planEsUtil(plan)) return false;
+    var dias = {};
+    (plan.dias || []).forEach(function (d) { dias[d.id] = true; });
+    var sesionLigada = (data.sesiones_entrenamiento || []).some(function (s) {
+      return s && (s.plan_id === plan.plan_id || (s.dia_rutina_id != null && dias[s.dia_rutina_id] === true));
+    });
+    var versionLigada = data.rutina.planes.some(function (p) { return p.plan_id !== plan.plan_id && p.version_de === plan.plan_id; });
+    return !sesionLigada && !versionLigada;
+  }
+
   function ejerciciosDelPlanActivo(data) {
     return diasDelPlanActivo(data).reduce(function (acc, dia) {
       return acc.concat(dia.ejercicios || []);
@@ -563,26 +586,35 @@ GYMAPP.planes = (function () {
   /* Copia de `data` con el plan activo archivado (archivado_en, si no lo
      tenía) y `nuevoPlan` agregado AL FINAL y activo. No toca días,
      ejercicios ni otros campos de ningún plan existente, ni sesiones. */
-  function reemplazarPlanActivo(data, nuevoPlan, timestamp) {
+  function reemplazarPlanActivo(data, nuevoPlan, timestamp, descartarAnterior) {
     var copia = JSON.parse(JSON.stringify(data));
     var anterior = planActivo(copia);
     if (!anterior) throw new Error("No hay un plan activo válido.");
-    if (anterior.archivado_en === null || anterior.archivado_en === undefined) anterior.archivado_en = timestamp;
+    if (descartarAnterior) {
+      copia.rutina.planes = copia.rutina.planes.filter(function (p) { return p.plan_id !== anterior.plan_id; });
+    } else if (anterior.archivado_en === null || anterior.archivado_en === undefined) {
+      anterior.archivado_en = timestamp;
+    }
     copia.rutina.planes.push(JSON.parse(JSON.stringify(nuevoPlan)));
     copia.rutina.plan_activo_id = nuevoPlan.plan_id;
     return copia;
   }
 
   /* Invariantes del cambio de plan: null o el problema. */
-  function verificarCambioDePlan(antes, despues, nuevoPlan) {
+  function verificarCambioDePlan(antes, despues, nuevoPlan, descartado) {
     var mismo = function (a, b) { return JSON.stringify(a) === JSON.stringify(b); };
     if (despues.schema_version !== 3 || "dias" in despues.rutina) return "Formato inválido.";
-    var planesAntes = antes.rutina.planes, planesDespues = despues.rutina.planes;
+    var idAnterior = antes.rutina.plan_activo_id;
+    var planesAntes = descartado
+      ? antes.rutina.planes.filter(function (p) { return p.plan_id !== idAnterior; })
+      : antes.rutina.planes;
+    var planesDespues = despues.rutina.planes;
     if (planesDespues.length !== planesAntes.length + 1) return "No se agregó exactamente un plan.";
     if (!mismo(planesDespues[planesDespues.length - 1], nuevoPlan) || despues.rutina.plan_activo_id !== nuevoPlan.plan_id) return "El nuevo plan no quedó activo.";
+    if (descartado && nuevoPlan.version_de !== null) return "El nuevo plan apunta a un plan descartado.";
     for (var i = 0; i < planesAntes.length; i++) {
       var a = planesAntes[i], b = planesDespues[i];
-      if (a.plan_id === antes.rutina.plan_activo_id) {
+      if (a.plan_id === idAnterior) {
         var sinArchivo = JSON.parse(JSON.stringify(b));
         sinArchivo.archivado_en = a.archivado_en;
         if (!mismo(sinArchivo, a) || !b.archivado_en) return "El plan anterior cambió.";
@@ -599,22 +631,25 @@ GYMAPP.planes = (function () {
 
   /* Todo el cambio de plan en memoria: plan nuevo con IDs nuevos y
      version_de = plan activo, plan anterior archivado con el mismo instante,
-     validaciones. { ok, datos, plan } o { ok: false, error }. No escribe. */
+     validaciones. Si el anterior no es útil (ver planDescartableAlReemplazar)
+     no se archiva: se descarta y version_de queda null.
+     { ok, datos, plan, anteriorDescartado } o { ok: false, error }. No escribe. */
   function prepararCambioDePlan(data, borrador, opciones) {
     var anterior = planActivo(data);
     if (!anterior) return { ok: false, error: "No hay un plan activo válido." };
+    var descartar = planDescartableAlReemplazar(data, anterior);
     var plan;
     try {
-      plan = crearPlanDesdeBorrador(borrador, { ahora: opciones.ahora, nombreArchivo: opciones.nombreArchivo, versionDe: anterior.plan_id, usados: idsUsados(data) });
+      plan = crearPlanDesdeBorrador(borrador, { ahora: opciones.ahora, nombreArchivo: opciones.nombreArchivo, versionDe: descartar ? null : anterior.plan_id, usados: idsUsados(data) });
     } catch (e) {
       return { ok: false, error: e.message };
     }
     var error = validarNuevoPlan(plan);
     if (error) return { ok: false, error: error };
-    var datos = reemplazarPlanActivo(data, plan, opciones.ahora);
-    error = GYMAPP.storage.validarDatosV3(datos) || verificarCambioDePlan(data, datos, plan);
+    var datos = reemplazarPlanActivo(data, plan, opciones.ahora, descartar);
+    error = GYMAPP.storage.validarDatosV3(datos) || verificarCambioDePlan(data, datos, plan, descartar);
     if (error) return { ok: false, error: "No se pudo preparar el nuevo plan: " + error };
-    return { ok: true, datos: datos, plan: plan };
+    return { ok: true, datos: datos, plan: plan, anteriorDescartado: descartar };
   }
 
   /* true si el borrador tiene los mismos días y ejercicios (nombres y
@@ -694,6 +729,8 @@ GYMAPP.planes = (function () {
     planActivo: planActivo,
     diasDelPlanActivo: diasDelPlanActivo,
     ejerciciosDelPlanActivo: ejerciciosDelPlanActivo,
+    planEsUtil: planEsUtil,
+    planDescartableAlReemplazar: planDescartableAlReemplazar,
     buscarDiaActivo: buscarDiaActivo,
     buscarEjercicioActivo: buscarEjercicioActivo,
     buscarEjercicioEnDiaActivo: buscarEjercicioEnDiaActivo,

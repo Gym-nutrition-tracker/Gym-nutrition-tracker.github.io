@@ -2377,3 +2377,227 @@ body.modal-abierto {
 .reasig-ejercicio select[aria-invalid="true"] {
   border-color: var(--color-error);
 }
+
+/* ONB-03: primer uso guiado. */
+.primer-uso-card {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-primario);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.primer-uso-card h2 {
+  margin: 0 0 8px;
+  font-family: var(--fuente-titulos);
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.primer-uso-pasos {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  color: var(--color-texto-secundario);
+  font-size: 0.92rem;
+}
+
+.primer-uso-pasos li {
+  margin: 4px 0;
+}
+
+.primer-uso-pasos li.actual {
+  color: var(--color-texto);
+  font-weight: 600;
+}
+
+.primer-uso-pasos li.hecho {
+  text-decoration: line-through;
+}
+
+.primer-uso-acciones {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.primer-uso-acciones .btn {
+  margin-top: 0;
+}
+
+.primer-uso-acciones .btn-secundario {
+  width: 100%;
+  padding: 12px;
+  font-size: 0.95rem;
+  white-space: normal;
+}
+
+.primer-uso-card .nota {
+  margin: 10px 0 0;
+}
+
+.primer-uso-aviso {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-left: 3px solid var(--color-primario);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.primer-uso-aviso p {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+
+.primer-uso-aviso p:last-child {
+  margin-bottom: 0;
+}
+
+.primer-uso-aviso .btn-secundario {
+  width: 100%;
+}
+
+.plan-cargar {
+  margin-top: 10px;
+}
+
+.rutina-vacia {
+  background: var(--color-superficie);
+  border: 1px dashed var(--color-borde);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.rutina-vacia h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.rutina-vacia .nota {
+  margin: 0 0 12px;
+}
+
+.cargar-plan-opciones {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cargar-plan-opcion {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: 12px;
+  padding: 14px;
+  color: var(--color-texto);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.cargar-plan-opcion span {
+  font-size: 0.85rem;
+  color: var(--color-texto-secundario);
+}
+
+.cargar-plan-opcion:focus-visible,
+.cargar-plan-opcion:hover {
+  border-color: var(--color-primario);
+}
+
+.seccion-ayuda {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-borde);
+}
+
+.seccion-ayuda h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+  color: var(--color-texto-secundario);
+}
+
+/* Guía de inicio: fondo suave, header y navegación por encima para que el
+   elemento señalado se vea; la tarjeta queda arriba de la barra inferior. */
+.guia-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+body.guia-activa .app-header,
+body.guia-activa .bottom-nav {
+  position: relative;
+  z-index: 1001;
+}
+
+body.guia-activa .bottom-nav {
+  position: fixed;
+}
+
+.guia-objetivo {
+  outline: 2px solid var(--color-celeste);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+.guia-tarjeta {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  z-index: 1002;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--color-fondo);
+  border: 1px solid var(--color-primario);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.guia-tarjeta:focus {
+  outline: none;
+}
+
+.guia-paso {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-celeste);
+}
+
+.guia-tarjeta h3 {
+  margin: 4px 0 6px;
+  font-family: var(--fuente-titulos);
+}
+
+.guia-tarjeta p {
+  margin: 0;
+}
+
+.guia-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.guia-acciones .guia-omitir {
+  width: auto;
+  margin: 0 auto 0 0;
+  padding: 8px 4px;
+  color: var(--color-texto-secundario);
+}
+
+.guia-acciones .btn-secundario {
+  margin-left: auto;
+}
+
+.guia-acciones .btn-secundario + .btn-secundario {
+  margin-left: 0;
+}

@@ -93,6 +93,9 @@ GYMAPP.entrenamiento = (function () {
 
   function template(data, estado, actividadesUsuario) {
     var hayFormulario = !!estado.editandoId || actividadesUsuario.length > 0;
+    /* ONB-03: gimnasio sin plan → solo el aviso para cargarlo (sin campos
+       ni "Guardar sesión" que llevarían a un error). */
+    var gimnasioSinPlan = !estado.editandoId && estado.tipo === "gimnasio" && !GYMAPP.primerUso.tienePlanUtil(data);
 
     return (
       '<div class="pantalla pantalla-entrenar">' +
@@ -100,7 +103,8 @@ GYMAPP.entrenamiento = (function () {
       renderFecha(estado) +
       renderSelectorActividad(estado, actividadesUsuario) +
       '<div id="entrenar-mensaje" class="mensaje oculto"></div>' +
-      (hayFormulario
+      (hayFormulario && gimnasioSinPlan ? renderCuerpoActividad(data, estado) : "") +
+      (hayFormulario && !gimnasioSinPlan
         ? renderCuerpoActividad(data, estado) +
           renderComun(estado) +
           '<button type="button" data-accion="guardar-sesion" class="btn btn-primario">' +
@@ -181,8 +185,14 @@ GYMAPP.entrenamiento = (function () {
     if (estado.editandoId) return renderGimnasioEdicion(estado);
 
     var dias = GYMAPP.planes.diasDelPlanActivo(data);
-    if (!dias.length) {
-      return '<p class="nota">Todavía no tenés días en tu rutina. Cargá uno desde el ícono de ajustes (Rutina).</p>';
+    if (!GYMAPP.primerUso.tienePlanUtil(data)) {
+      return (
+        '<div class="primer-uso-aviso" role="status">' +
+        "<p><strong>Primero necesitás cargar un plan.</strong></p>" +
+        "<p>Importá el PDF de tu entrenador o armá tu rutina, y después registrás tus entrenamientos acá.</p>" +
+        '<button type="button" data-accion="inicio-ir-rutina" class="btn btn-primario">Cargar mi plan</button>' +
+        "</div>"
+      );
     }
 
     var opciones = '<option value="">Elegí un día</option>' +

@@ -25,7 +25,7 @@ GYMAPP.rutina = (function () {
     var usuario = data.usuario;
     var listaDias = dias.length
       ? dias.map(renderDia).join("")
-      : '<p class="nota">Todavía no tenés días cargados. Agregá uno manualmente o importá el PDF de tu rutina.</p>';
+      : renderEstadoVacio();
 
     return (
       '<div class="pantalla pantalla-rutina">' +
@@ -46,6 +46,7 @@ GYMAPP.rutina = (function () {
       renderSeccionActividades(usuario) +
       (GYMAPP.auth ? GYMAPP.auth.renderSeccionCuenta() : "") +
       (GYMAPP.sync ? GYMAPP.sync.renderSeccionSincronizacion() : "") +
+      renderSeccionAyuda() +
       renderSeccionBackup() +
       '<div id="rutina-modal"></div>' +
       "</div>"
@@ -113,6 +114,11 @@ GYMAPP.rutina = (function () {
       '<button type="button" data-accion="editar-plan" class="btn-secundario">Editar plan</button>' +
       '<button type="button" data-accion="historial-planes" class="btn-secundario">Historial de planes</button>' +
       "</div>" +
+      /* Sin días se muestra el estado vacío con su propio "Cargar mi plan":
+         una sola acción principal. */
+      (plan.dias && plan.dias.length
+        ? '<button type="button" data-accion="cargar-plan" class="btn btn-primario plan-cargar">Cargar / cambiar plan</button>'
+        : "") +
       "</section>"
     );
   }
@@ -366,6 +372,17 @@ GYMAPP.rutina = (function () {
         borrarEjercicio(container, boton.dataset.diaId, boton.dataset.ejercicioId);
       } else if (accion === "importar-pdf") {
         container.querySelector("#input-pdf-rutina").click();
+      } else if (accion === "cargar-plan") {
+        abrirModal(container, renderModalCargarPlan(GYMAPP.planes.diasDelPlanActivo(GYMAPP.storage.getData()).length > 0), "cargar-plan");
+      } else if (accion === "cargar-plan-pdf") {
+        /* Mismo flujo que "Importar PDF" (E6): selector de archivo → revisión. */
+        cerrarModal(container, { sinFoco: true });
+        iniciarImportacionPdf(container);
+      } else if (accion === "cargar-plan-manual") {
+        cerrarModal(container, { sinFoco: true });
+        iniciarCreacionManual(container);
+      } else if (accion === "ver-guia") {
+        GYMAPP.primerUso.abrirGuia({ alCerrar: boton });
       } else if (accion === "exportar-backup") {
         exportarBackup();
       } else if (accion === "importar-backup") {
@@ -459,6 +476,63 @@ GYMAPP.rutina = (function () {
 
     if (!resultado.guardado) {
       mostrarMensaje(container, MENSAJE_ERROR_GUARDADO, "error");
+    }
+  }
+
+  /* --- ONB-03: puertas de entrada visibles a los flujos existentes --- */
+
+  function renderEstadoVacio() {
+    return (
+      '<section class="rutina-vacia" aria-labelledby="rutina-vacia-titulo">' +
+      '<h3 id="rutina-vacia-titulo">No tenés un plan cargado</h3>' +
+      '<p class="nota">Podés importar el PDF de tu entrenador o crear tu rutina manualmente.</p>' +
+      '<div class="primer-uso-acciones">' +
+      '<button type="button" data-accion="cargar-plan" class="btn btn-primario">Cargar mi plan</button>' +
+      "</div>" +
+      "</section>"
+    );
+  }
+
+  /* `hayDias`: con plan armado se ofrece cambiarlo o editarlo; sin días,
+     cargarlo o crearlo. Las dos opciones abren los flujos existentes. */
+  function renderModalCargarPlan(hayDias) {
+    return envolverModal(hayDias ? "Cargar / cambiar plan" : "Cargar mi plan",
+      '<div class="cargar-plan-opciones">' +
+      '<button type="button" data-accion="cargar-plan-pdf" class="cargar-plan-opcion">' +
+      "<strong>Importar desde PDF</strong>" +
+      "<span>Subí el PDF de tu entrenador. Vas a revisar todo antes de activarlo.</span></button>" +
+      '<button type="button" data-accion="cargar-plan-manual" class="cargar-plan-opcion">' +
+      (hayDias
+        ? "<strong>Crear / editar manualmente</strong><span>Armá o ajustá los días y ejercicios de tu plan actual.</span>"
+        : "<strong>Crear manualmente</strong><span>Armá tus días y ejercicios desde cero.</span>") +
+      "</button>" +
+      "</div>");
+  }
+
+  function renderSeccionAyuda() {
+    return (
+      '<div class="seccion-ayuda">' +
+      "<h3>Ayuda</h3>" +
+      '<p class="nota">Un repaso rápido de cómo usar la app.</p>' +
+      '<button type="button" data-accion="ver-guia" class="btn-secundario">Ver guía de inicio</button>' +
+      "</div>"
+    );
+  }
+
+  /* Abre el selector de archivo del importador de PDF existente (E6). */
+  function iniciarImportacionPdf(container) {
+    var input = container.querySelector("#input-pdf-rutina");
+    if (input) input.click();
+  }
+
+  /* Editor manual existente: si el plan no tiene días crea el primero
+     (igual que "+ Nuevo día"); después lleva el foco al primer día. */
+  function iniciarCreacionManual(container) {
+    if (!GYMAPP.planes.diasDelPlanActivo(GYMAPP.storage.getData()).length) agregarDia(container);
+    var primero = container.querySelector(".rutina-dias .input-nombre-dia");
+    if (primero) {
+      primero.scrollIntoView({ block: "center" });
+      primero.focus();
     }
   }
 
@@ -683,7 +757,9 @@ GYMAPP.rutina = (function () {
       '<section class="rev-resumen" aria-labelledby="rev-resumen-titulo">' +
       '<h4 id="rev-resumen-titulo">Resumen</h4>' +
       "<p><strong>Nuevo plan:</strong> " + plural(borrador.dias.length, "día", "días") + " · " + plural(totalEjercicios, "ejercicio", "ejercicios") + "</p>" +
-      "<p><strong>Plan actual que será archivado:</strong> " + esc(nombrePlan(activo, NOMBRE_PLAN_ACTIVO_DEFAULT)) + "</p>" +
+      (GYMAPP.planes.planDescartableAlReemplazar(data, activo)
+        ? "<p><strong>Plan actual:</strong> no tiene ejercicios, no se guarda en el historial</p>"
+        : "<p><strong>Plan actual que será archivado:</strong> " + esc(nombrePlan(activo, NOMBRE_PLAN_ACTIVO_DEFAULT)) + "</p>") +
       "<p><strong>Sesiones históricas:</strong> no se modificarán</p>" +
       '<div id="rev-errores" class="mensaje error' + (mostrarErrores && validacion.errores.length ? "" : " oculto") + '" role="alert">' +
       (mostrarErrores && validacion.errores.length ? esc("Corregí " + plural(validacion.errores.length, "error", "errores") + " antes de activar: " + validacion.errores.map(function (e) { return e.mensaje; }).join(" ")) : "") +
@@ -805,7 +881,9 @@ GYMAPP.rutina = (function () {
       mostrarMensajeEn(errorEl, preparado.error, "error");
       return;
     }
-    if (!confirm("El plan actual pasará al historial. Tus entrenamientos anteriores no se modificarán.\n\n¿Activar el nuevo plan?")) return;
+    if (!confirm((preparado.anteriorDescartado
+      ? "Tu plan actual no tiene ejercicios: no se guarda en el historial."
+      : "El plan actual pasará al historial. Tus entrenamientos anteriores no se modificarán.") + "\n\n¿Activar el nuevo plan?")) return;
     var guardado = GYMAPP.storage.guardarConCopiaPrevia(CLAVE_PRE_CAMBIO_PLAN, preparado.datos, ahora);
     if (!guardado.ok) {
       mostrarMensajeEn(errorEl, guardado.motivo === "copia"
@@ -815,7 +893,9 @@ GYMAPP.rutina = (function () {
     }
     importacion = null;
     render(container);
-    mostrarMensaje(container, "Nuevo plan activado. El plan anterior quedó en el Historial de planes.", "exito");
+    mostrarMensaje(container, preparado.anteriorDescartado
+      ? "Nuevo plan activado."
+      : "Nuevo plan activado. El plan anterior quedó en el Historial de planes.", "exito");
   }
 
   function exportarBackup() {
@@ -875,6 +955,9 @@ GYMAPP.rutina = (function () {
 
   return {
     render: render,
+    /* ONB-03: entradas a los flujos existentes desde otras pantallas. */
+    iniciarImportacionPdf: iniciarImportacionPdf,
+    iniciarCreacionManual: iniciarCreacionManual,
     /* Expuestas para tests (presentación pura, sin escrituras). */
     renderTarjetaPlanActivo: renderTarjetaPlanActivo,
     renderModalEditarPlan: renderModalEditarPlan,

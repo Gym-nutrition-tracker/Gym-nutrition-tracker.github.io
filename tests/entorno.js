@@ -177,6 +177,7 @@ function crearEntorno(opciones) {
   cargar("js/planLegacy.js");
   cargar("js/planes.js");
   cargar("js/rutinasHistoricas.js");
+  cargar("js/primerUso.js");
 
   const auth = { sesion: null, eventos: null, llamadas: [] };
   if (opciones.authReal) {

@@ -121,6 +121,17 @@ async function recorrer(browser, url) {
     c.querySelectorAll(".plan-activo-card, #rutina-modal").forEach((n) => n.remove());
     return { tenia, sinPlan: c.innerHTML };
   });
+  /* ONB-03: los dos únicos agregados legítimos de Rutina, para comparar el
+     resto contra versiones anteriores. `agregados` describe exactamente qué
+     se quitó (texto y acción), así la comparación no tapa otros cambios. */
+  const onb03 = await page.evaluate(() => {
+    const c = document.getElementById("tab-content").cloneNode(true);
+    const quitados = Array.from(c.querySelectorAll(".plan-cargar, .seccion-ayuda"));
+    const agregados = quitados.map((n) => n.className + "|" + n.textContent.replace(/\s+/g, " ").trim() + "|" +
+      Array.from(n.matches("[data-accion]") ? [n] : n.querySelectorAll("[data-accion]")).map((x) => x.dataset.accion).join(","));
+    quitados.forEach((n) => n.remove());
+    return { agregados, sinAgregados: c.innerHTML };
+  });
   const almacenado = await page.evaluate(() => localStorage.getItem("gymNutritionTracker"));
   const claves = await page.evaluate(() => Object.keys(localStorage).sort());
   const pre = await page.evaluate(() => localStorage.getItem("gymNutritionTracker_preMigracionV3"));
@@ -128,7 +139,7 @@ async function recorrer(browser, url) {
   /* E2: el dato sembrado es schema 2; al abrir la app se migra una sola vez a
      schema 3 (con su copia previa) y después nada más lo modifica. */
   const sinCambios = almacenado === JSON.stringify(aV3(JSON.parse(datos)));
-  return { html, rutina, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios, claves, preCrudo: pre ? JSON.parse(pre).data_raw === datos : false };
+  return { html, rutina, onb03, progreso, avisoEjercicio, errores, pedidosSupabase, sinCambios, claves, preCrudo: pre ? JSON.parse(pre).data_raw === datos : false };
 }
 
 (async () => {
@@ -155,8 +166,18 @@ async function recorrer(browser, url) {
     if (srvBase) {
       const base = await recorrer(browser, "http://127.0.0.1:" + srvBase.address().port);
       ["dashboard", "entrenar", "nutricion"].forEach((t) => check("HTML idéntico a la versión base: " + t, nuevo.html[t] === base.html[t]));
-      if (base.rutina.tenia) {
+      if (base.rutina.tenia && base.onb03.agregados.length) {
         check("HTML idéntico a la versión base: rutina", nuevo.html.rutina === base.html.rutina);
+      } else if (base.rutina.tenia) {
+        /* Base anterior a ONB-03 (por ejemplo, HEAD de E6.1): Rutina idéntica
+           salvo exactamente "Cargar / cambiar plan" y "Ayuda / Ver guía de inicio". */
+        const esperados = [
+          "btn btn-primario plan-cargar|Cargar / cambiar plan|cargar-plan",
+          "seccion-ayuda|AyudaUn repaso rápido de cómo usar la app.Ver guía de inicio|ver-guia"
+        ];
+        check("Rutina idéntica a la base salvo 'Cargar / cambiar plan' y 'Ayuda / Ver guía de inicio' (ONB-03)",
+          JSON.stringify(nuevo.onb03.agregados) === JSON.stringify(esperados) && nuevo.onb03.sinAgregados === base.html.rutina,
+          nuevo.onb03.agregados);
       } else {
         check("Rutina idéntica a la base salvo la tarjeta del plan activo (E4)", nuevo.rutina.tenia && nuevo.rutina.sinPlan === base.html.rutina);
       }

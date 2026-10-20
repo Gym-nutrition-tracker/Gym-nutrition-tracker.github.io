@@ -72,6 +72,7 @@ GYMAPP.progreso = (function () {
     return (
       '<div class="pantalla pantalla-progreso">' +
       "<h2>Progreso</h2>" +
+      renderAvisoPrimerUso(data) +
       renderResumenGeneral(sesiones, rachas) +
       '<div class="progreso-layout">' +
       '<div class="progreso-columna-principal">' +
@@ -87,6 +88,26 @@ GYMAPP.progreso = (function () {
       "</div>" +
       "</div>"
     );
+  }
+
+  /* ONB-03: aviso de primer uso. Solo texto y navegación: no cambia ningún
+     cálculo de Progreso. */
+  function renderAvisoPrimerUso(data) {
+    if (!GYMAPP.primerUso) return "";
+    var e = GYMAPP.primerUso.estadoInicial(data);
+    var cuerpo;
+    if (e.sesiones_gimnasio === 0 && !e.tiene_plan) {
+      cuerpo = "<p>Tu progreso aparecerá cuando cargues tu plan y registres tu primer entrenamiento.</p>" +
+        '<button type="button" data-accion="inicio-ir-rutina" class="btn-secundario">Cargar mi plan</button>';
+    } else if (e.sesiones_gimnasio === 0) {
+      cuerpo = "<p>Tu progreso aparecerá después de registrar tu primer entrenamiento.</p>" +
+        '<button type="button" data-accion="inicio-entrenar" class="btn-secundario">Ir a Entrenar</button>';
+    } else if (e.sesiones_gimnasio === 1) {
+      cuerpo = "<p>Ya registraste tu primera sesión. Vas a empezar a ver comparaciones cuando repitas ejercicios.</p>";
+    } else {
+      return "";
+    }
+    return '<div class="primer-uso-aviso" role="status">' + cuerpo + "</div>";
   }
 
   /* --- Resumen general ---

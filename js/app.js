@@ -54,6 +54,14 @@ GYMAPP.app = (function () {
       renderTab("rutina", data);
     });
 
+    /* ONB-03: un único listener para los botones de primer uso de todas
+       las pestañas (#tab-content es compartido: si cada módulo lo manejara,
+       la acción se ejecutaría una vez por módulo visitado). */
+    document.getElementById("tab-content").addEventListener("click", function (ev) {
+      var boton = ev.target.closest('[data-accion^="inicio-"]');
+      if (boton) GYMAPP.primerUso.manejarAccion(boton.dataset.accion);
+    });
+
     TABS.forEach(function (tab) {
       document.getElementById("nav-" + tab.id).addEventListener("click", function () {
         renderTab(tab.id, data);
@@ -61,6 +69,22 @@ GYMAPP.app = (function () {
     });
 
     renderTab(tabActual, data);
+
+    /* ONB-03: guía de inicio automática solo para quien parece nuevo. */
+    if (GYMAPP.primerUso) GYMAPP.primerUso.mostrarGuiaSiCorresponde(GYMAPP.storage.getData());
+  }
+
+  /* ONB-03: navegación compartida para los botones de primer uso. Abre la
+     pestaña y, si se pide, dispara el flujo EXISTENTE de esa pantalla
+     (importador de PDF o editor manual de Rutina). Se llama dentro del
+     mismo click, así el selector de archivos del navegador se puede abrir. */
+  function irA(tabId, opciones) {
+    if (!document.getElementById("tab-content")) return;
+    renderTab(tabId, GYMAPP.storage.getData());
+    var contenido = document.getElementById("tab-content");
+    var accion = opciones && opciones.accion;
+    if (tabId === "rutina" && accion === "importar-pdf") GYMAPP.rutina.iniciarImportacionPdf(contenido);
+    if (tabId === "rutina" && accion === "crear-plan") GYMAPP.rutina.iniciarCreacionManual(contenido);
   }
 
   function renderBotonNav(tab) {
@@ -107,7 +131,7 @@ GYMAPP.app = (function () {
     }
   }
 
-  return { iniciar: iniciar };
+  return { iniciar: iniciar, irA: irA };
 })();
 
 document.addEventListener("DOMContentLoaded", function () {
