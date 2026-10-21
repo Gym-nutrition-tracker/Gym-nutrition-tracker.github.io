@@ -501,3 +501,103 @@ test("una sola normalización: claveEjercicio es la que usa el motor", () => {
   assert.equal(e.GYMAPP.recomendacionCarga.normalizar("Elevación C/MANCUERNA"), "elevacion con mancuerna");
   assert.notEqual(e.GYMAPP.rutinasHistoricas.claveEjercicio("PRESS INCLINADO EN SMITH"), e.GYMAPP.rutinasHistoricas.claveEjercicio("PRESS INCLINADO C/MANCUERNAS"));
 });
+
+/* --- Peso corporal: el registro es CARGA TOTAL (cuerpo + lastre) --- */
+
+/* Dominadas 80 kg totales x 8 (RIR 2 supuesto) → 4x6-8 RIR 1-2: 82,5 kg totales. */
+function dominadas(peso, perfil) {
+  const d = F.caso([h("DOMINADAS TOMA NEUTRA", tres(() => serie(75, [10]).concat(serie(80, [8, 8, 8]))))],
+    { nombre: "DOMINADAS TOMA NEUTRA", series_objetivo: 4, reps_objetivo: "6-8", rir_objetivo: "1-2", rpe_objetivo: 9 });
+  if (peso != null) d.medidas_corporales = [{ fecha: "2026-10-01", peso_kg: peso - 3, cintura_cm: null }, { fecha: "2026-11-02", peso_kg: peso, cintura_cm: null }];
+  if (perfil != null) d.usuario.peso_kg = perfil;
+  return d;
+}
+
+function conPeso(datos) {
+  const e = entorno(datos);
+  const R = e.GYMAPP.recomendacionCarga;
+  const data = e.GYMAPP.storage.getData();
+  const plan = e.GYMAPP.planes.planActivo(data);
+  const ej = plan.dias[0].ejercicios[0];
+  const rec = R.recomendar(R.construirIndiceHistorial(data), ej, { hoy: HOY, contexto: R.contextoPlan(plan), pesoCorporal: R.pesoCorporalActual(data) });
+  return { r: clonar(rec), html: R.renderSugerencia(rec), e, data };
+}
+
+test("peso corporal 1. 75 kg + carga total 82,5 → 'Lastre sugerido: +7,5 kg' y carga total secundaria", () => {
+  const { r, html } = conPeso(dominadas(75));
+  assert.equal(r.kg, 82.5, "el cálculo general no cambia");
+  assert.equal(r.nivel, "A");
+  assert.deepEqual(r.pesoCorporal, { conocido: true, kg: 75, fuente: "medida", fecha: "2026-11-02", lastre: 7.5 });
+  assert.match(html, /Lastre sugerido:<\/span> <strong>\+7,5 kg<\/strong> <span class="carga-sugerida-confianza">· Confianza alta/);
+  assert.match(html, /Carga total estimada: 82,5 kg/);
+  assert.doesNotMatch(html, /Carga sugerida:/, "no la etiqueta ambigua");
+  assert.match(html, /Tu peso corporal actual es 75 kg \(última medida del 02\/11\/2026\)\. La carga total estimada para este objetivo es 82,5 kg\. Eso equivale aproximadamente a \+7,5 kg de lastre\./);
+});
+
+test("peso corporal 2. carga total = peso corporal → 'Peso corporal', sin lastre", () => {
+  const { r, html } = conPeso(dominadas(82.5));
+  assert.equal(r.pesoCorporal.lastre, 0);
+  assert.match(html, /<strong>Peso corporal<\/strong>/);
+  assert.doesNotMatch(html, /Lastre sugerido|\+0/);
+  assert.match(html, /no lo supera: hacelo sin lastre/);
+});
+
+test("peso corporal 3. carga total menor que el peso → nunca lastre negativo", () => {
+  const { r, html } = conPeso(dominadas(90));
+  assert.equal(r.pesoCorporal.lastre, 0);
+  assert.match(html, /<strong>Peso corporal<\/strong>/);
+  assert.doesNotMatch(html, /Lastre sugerido|[-−]\s?\d+(,\d+)? kg de lastre|\+-/);
+});
+
+test("peso corporal 4. sin peso registrado → carga total orientativa + pedido de registrar el peso", () => {
+  const { r, html } = conPeso(dominadas(null));
+  assert.deepEqual(r.pesoCorporal, { conocido: false });
+  assert.match(html, /Carga total orientativa:<\/span> <strong>82,5 kg<\/strong>/);
+  assert.match(html, /Para calcular el lastre necesitás registrar tu peso corporal\./);
+  assert.doesNotMatch(html, /Lastre sugerido/);
+});
+
+test("peso corporal: sin medidas usa el peso del perfil (y lo dice); la medida más reciente tiene prioridad", () => {
+  const perfil = conPeso(dominadas(null, 74));
+  assert.deepEqual(perfil.r.pesoCorporal, { conocido: true, kg: 74, fuente: "perfil", fecha: null, lastre: 7.5 }, "82,5 - 74 = 8,5 → 7,5 (múltiplo de 1,25 hacia abajo)");
+  assert.match(perfil.html, /Tu peso corporal actual es 74 kg \(según tu perfil\)/);
+  const ambos = conPeso(dominadas(75, 70));
+  assert.equal(ambos.r.pesoCorporal.kg, 75, "la medida gana al perfil");
+  assert.equal(ambos.r.pesoCorporal.fuente, "medida");
+});
+
+test("peso corporal 5. fondos: mismo criterio (carga total - peso = lastre)", () => {
+  const d = F.caso([h("FONDOS EN PARALELAS", tres(() => serie(85, [8, 8, 7])))], { nombre: "FONDOS EN PARALELAS", series_objetivo: 4, reps_objetivo: "6-8", rir_objetivo: "1-2", rpe_objetivo: 9 });
+  d.medidas_corporales = [{ fecha: "2026-11-02", peso_kg: 75, cintura_cm: null }];
+  const { r, html } = conPeso(d);
+  assert.equal(r.tipo, "sugerencia");
+  assert.equal(r.pesoCorporal.lastre, Math.floor((r.kg - 75) / 1.25) * 1.25);
+  assert.ok(r.pesoCorporal.lastre > 0);
+  assert.match(html, new RegExp("Lastre sugerido:</span> <strong>\\+" + String(r.pesoCorporal.lastre).replace(".", ",") + " kg"));
+  assert.match(html, new RegExp("Carga total estimada: " + String(r.kg).replace(".", ",") + " kg"));
+});
+
+test("peso corporal: el lastre se redondea hacia abajo a 1,25 kg (nunca más de lo calculado)", () => {
+  const { r } = conPeso(dominadas(74.3));
+  assert.equal(r.kg, 82.5);
+  assert.equal(r.pesoCorporal.lastre, 7.5, "82,5 - 74,3 = 8,2 → 7,5");
+});
+
+test("peso corporal 6. el historial original queda intacto (carga total), sin escrituras", () => {
+  const datos = dominadas(75);
+  const { e, data } = conPeso(datos);
+  assert.deepEqual(e.localStorage._escrituras, []);
+  assert.deepEqual(clonar(data.sesiones_entrenamiento), datos.sesiones_entrenamiento);
+  const plan = e.GYMAPP.planes.planActivo(data);
+  const ultima = clonar(e.GYMAPP.rutinasHistoricas.buscarUltimaEjecucion(data, plan.dias[0].ejercicios[0]));
+  assert.deepEqual(ultima.series, serie(75, [10]).concat(serie(80, [8, 8, 8])), "'Última vez' muestra los kg tal como se registraron");
+  assert.deepEqual(clonar(data.medidas_corporales), datos.medidas_corporales);
+});
+
+test("ejercicios con carga externa no cambian de presentación aunque haya peso corporal", () => {
+  const d = F.CASOS.A();
+  d.medidas_corporales = [{ fecha: "2026-11-02", peso_kg: 75, cintura_cm: null }];
+  const { r, html } = conPeso(d);
+  assert.equal(r.pesoCorporal, null);
+  assert.match(html, /Carga sugerida:<\/span> <strong>22 kg por mancuerna<\/strong>/);
+});

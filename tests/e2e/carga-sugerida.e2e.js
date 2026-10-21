@@ -46,14 +46,29 @@ function semilla() {
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });
   const datos = semilla();
 
-  async function abrir(ancho) {
+  /* Variante: dominadas registradas como CARGA TOTAL (75 = peso corporal,
+     80 = +5 de lastre) y peso corporal actual 75 kg. */
+  function conDominadasTotales(d, peso) {
+    const c = JSON.parse(JSON.stringify(d));
+    const viejo = c.rutina.planes.find((p) => p.plan_id === "plan-viejo");
+    const id = viejo.dias[0].ejercicios.find((e) => e.nombre === "DOMINADAS TOMA NEUTRA").id;
+    c.sesiones_entrenamiento.forEach((s) => s.ejercicios_realizados.forEach((er) => {
+      if (er.ejercicio_id === id) er.series = [{ peso_kg: 75, reps: 10 }, { peso_kg: 80, reps: 8 }, { peso_kg: 80, reps: 8 }, { peso_kg: 80, reps: 8 }];
+    }));
+    c.medidas_corporales = peso ? [{ fecha: "2026-11-02", peso_kg: peso, cintura_cm: null }] : [];
+    /* Sin peso conocido: tampoco en el perfil (si no, se usa ese). */
+    if (!peso) delete c.usuario.peso_kg;
+    return c;
+  }
+
+  async function abrir(ancho, semillaPropia) {
     const page = await browser.newPage({ viewport: { width: ancho, height: 844 }, locale: "es-AR", timezoneId: "America/Argentina/Buenos_Aires" });
     page.on("pageerror", (e) => errores.push(e.message));
     page.on("console", (m) => { if (m.type() === "error") errores.push(m.text()); });
     page.on("request", (q) => { if (/supabase\.co/.test(q.url())) supabase.push(q.url()); });
     await page.clock.install({ time: new Date(AHORA) });
     await page.clock.pauseAt(new Date(AHORA));
-    await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(datos));
+    await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(semillaPropia || datos));
     await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
     await seguirSinCuenta(page);
     await page.click("#nav-entrenar");
@@ -124,6 +139,31 @@ function semilla() {
     check("Face pull sin historial: guía en vez de kilos", /Sin historial relacionado para sugerir una carga/.test(await textoEn(p, "FACE PULL AL PISO", ".carga-sugerida")));
     await foto(p, "03-entrenar-traccion-390");
     await p.close();
+
+    /* Peso corporal: lastre sugerido (dominadas registradas como carga total). */
+    const pc = await abrir(390, conDominadasTotales(datos, 75));
+    const antesPc = await pc.evaluate((k) => localStorage.getItem(k), CLAVE);
+    await elegirDia(pc, "TRACCIÓN");
+    check("Dominadas: 'Lastre sugerido: +7,5 kg' como dato principal", /^Lastre sugerido: \+7,5 kg · Confianza alta$/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea")), await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea"));
+    check("Dominadas: 'Carga total estimada: 82,5 kg' secundaria", (await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-nota")) === "Carga total estimada: 82,5 kg");
+    check("Dominadas: 'Última vez' con los kg originales (carga total)", /^Última vez: 75kg x10 · 80kg x8/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".ejercicio-ultimo-registro")));
+    await (await tarjeta(pc, "DOMINADAS TOMA NEUTRA")).evaluate((c) => c.querySelector("summary").click());
+    check("Dominadas: '¿Por qué?' explica peso, carga total y lastre", /Tu peso corporal actual es 75 kg .*La carga total estimada para este objetivo es 82,5 kg\. Eso equivale aproximadamente a \+7,5 kg de lastre\./.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-detalle")));
+    check("Dominadas: no escribe datos", (await pc.evaluate((k) => localStorage.getItem(k), CLAVE)) === antesPc);
+    await foto(pc, "05-dominadas-lastre", '.ejercicio-entrenar-card:has(strong:text-is("DOMINADAS TOMA NEUTRA"))');
+    await pc.close();
+    const sinPeso = await abrir(390, conDominadasTotales(datos, null));
+    await elegirDia(sinPeso, "TRACCIÓN");
+    check("Sin peso corporal: carga total orientativa + pedido de registrar el peso",
+      /^Carga total orientativa: 82,5 kg/.test(await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea")) &&
+      (await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-nota")) === "Para calcular el lastre necesitás registrar tu peso corporal.");
+    await foto(sinPeso, "06-dominadas-sin-peso", '.ejercicio-entrenar-card:has(strong:text-is("DOMINADAS TOMA NEUTRA"))');
+    await sinPeso.close();
+    const pc320 = await abrir(320, conDominadasTotales(datos, 75));
+    await elegirDia(pc320, "TRACCIÓN");
+    await (await tarjeta(pc320, "DOMINADAS TOMA NEUTRA")).evaluate((c) => c.querySelector("summary").click());
+    check("320: dominadas con lastre y detalle abierto sin scroll horizontal", await pc320.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await pc320.close();
 
     /* 320 px */
     const q = await abrir(320);

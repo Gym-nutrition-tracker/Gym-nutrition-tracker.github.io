@@ -221,7 +221,8 @@ GYMAPP.entrenamiento = (function () {
       var indice = cargas.construirIndiceHistorial(data);
       var contexto = cargas.contextoPlan(GYMAPP.planes.planActivo(data));
       var hoy = GYMAPP.util.fechaLocalISO(new Date());
-      sugerencias = function (ej) { return cargas.renderSugerencia(cargas.recomendar(indice, ej, { hoy: hoy, contexto: contexto })); };
+      var pesoCorporal = cargas.pesoCorporalActual(data);
+      sugerencias = function (ej) { return cargas.renderSugerencia(cargas.recomendar(indice, ej, { hoy: hoy, contexto: contexto, pesoCorporal: pesoCorporal })); };
     }
 
     html += '<div class="ejercicios-entrenar">' +

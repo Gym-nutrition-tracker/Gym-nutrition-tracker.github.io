@@ -473,8 +473,39 @@ GYMAPP.recomendacionCarga = (function () {
       ultimaReferencia: refs.nivel === "A" ? { fecha: ultima.fecha, carga: ultima.carga, reps: ultima.reps } : null,
       repsMeta: repsMeta,
       clasificacion: clasif,
-      explicacion: explicar(refs.nivel, estimaciones, clasif, ejercicio, rirObjetivo)
+      explicacion: explicar(refs.nivel, estimaciones, clasif, ejercicio, rirObjetivo),
+      /* Peso corporal: el registro es CARGA TOTAL (cuerpo + lastre). Solo
+         presentación: kg sigue siendo la carga total calculada. */
+      pesoCorporal: clasif.corporal ? lastreDe(sugerida, opciones.pesoCorporal) : null
     };
+  }
+
+  /* --- Peso corporal (presentación de ejercicios con el propio cuerpo) --- */
+
+  /* Peso corporal actual, sin inventarlo:
+     1. la medida más reciente de medidas_corporales con peso válido;
+     2. si no hay, el peso del perfil (usuario.peso_kg);
+     3. si no, null. { kg, fuente: "medida"|"perfil", fecha }. */
+  function pesoCorporalActual(data) {
+    var medidas = ((data && data.medidas_corporales) || []).filter(function (m) {
+      return m && typeof m.peso_kg === "number" && isFinite(m.peso_kg) && m.peso_kg > 0;
+    });
+    if (medidas.length) {
+      var ultima = medidas.slice().sort(function (a, b) { return String(a.fecha) < String(b.fecha) ? 1 : -1; })[0];
+      return { kg: ultima.peso_kg, fuente: "medida", fecha: String(ultima.fecha).slice(0, 10) };
+    }
+    var perfil = data && data.usuario && Number(data.usuario.peso_kg);
+    return perfil > 0 ? { kg: perfil, fuente: "perfil", fecha: null } : null;
+  }
+
+  /* Lastre = carga total - peso corporal, redondeado hacia abajo a 1,25 kg
+     (discos chicos; nunca sugerir más de lo calculado). <= 0 → sin lastre. */
+  var INCREMENTO_LASTRE = 1.25;
+
+  function lastreDe(cargaTotal, peso) {
+    if (!peso) return { conocido: false };
+    var lastre = redondear(cargaTotal - peso.kg, INCREMENTO_LASTRE, "abajo");
+    return { conocido: true, kg: peso.kg, fuente: peso.fuente, fecha: peso.fecha, lastre: lastre > 0 ? lastre : 0 };
   }
 
   /* --- 4. Explicación y UI --- */
@@ -530,6 +561,7 @@ GYMAPP.recomendacionCarga = (function () {
     }
     var unidad = rec.unidad ? " " + rec.unidad : "";
     var etiquetaConfianza = { alta: "alta", media: "media", baja: "baja" }[rec.confianza];
+    if (rec.pesoCorporal) return renderSugerenciaCorporal(rec, etiquetaConfianza);
     return (
       '<div class="carga-sugerida carga-confianza-' + rec.confianza + '">' +
       '<p class="carga-sugerida-linea"><span class="carga-sugerida-etiqueta">Carga sugerida:</span> <strong>' + formatearKg(rec.kg) + " kg" + esc(unidad) + "</strong>" +
@@ -539,6 +571,48 @@ GYMAPP.recomendacionCarga = (function () {
         ? "<p>Equivalencia estimada con tu historial: " + formatearKg(rec.rango[0]) + "–" + formatearKg(rec.rango[1]) + " kg" + esc(unidad) +
           ". Como todavía no registraste este ejercicio, la carga inicial sugerida es más baja para calibrar.</p>"
         : "<p>Rango orientativo: " + formatearKg(rec.rango[0]) + "–" + formatearKg(rec.rango[1]) + " kg" + esc(unidad) + ".</p>") +
+      rec.explicacion.map(function (l) { return "<p>" + esc(l) + "</p>"; }).join("") +
+      '<p class="carga-sugerida-guia">' + esc(GUIA[rec.confianza]) + " Si terminás con más de 2-3 repeticiones en reserva, subí ligeramente; si no llegás a las reps, bajá.</p>" +
+      "</details>" +
+      "</div>"
+    );
+  }
+
+  /* Peso corporal: lo principal es el LASTRE (carga total - peso actual);
+     la carga total queda como dato secundario. Sin peso conocido, carga
+     total orientativa y pedido de registrar el peso. */
+  function renderSugerenciaCorporal(rec, etiquetaConfianza) {
+    var esc = GYMAPP.util.escapeHtml;
+    var pc = rec.pesoCorporal;
+    var total = formatearKg(rec.kg) + " kg";
+    var confianza = ' <span class="carga-sugerida-confianza">· Confianza ' + etiquetaConfianza + "</span>";
+    var linea, extra, detalle;
+    if (!pc.conocido) {
+      linea = '<span class="carga-sugerida-etiqueta">Carga total orientativa:</span> <strong>' + total + "</strong>";
+      extra = '<p class="carga-sugerida-nota">Para calcular el lastre necesitás registrar tu peso corporal.</p>';
+      detalle = "<p>Tus registros de este ejercicio son carga total (peso corporal + lastre).</p>";
+    } else {
+      var origen = pc.fuente === "medida" ? " (última medida" + (pc.fecha ? " del " + pc.fecha.split("-").reverse().join("/") : "") + ")" : " (según tu perfil)";
+      var peso = formatearKg(pc.kg) + " kg";
+      if (pc.lastre > 0) {
+        linea = '<span class="carga-sugerida-etiqueta">Lastre sugerido:</span> <strong>+' + formatearKg(pc.lastre) + " kg</strong>";
+        extra = '<p class="carga-sugerida-nota">Carga total estimada: ' + total + "</p>";
+        detalle = "<p>Tu peso corporal actual es " + peso + esc(origen) + ". La carga total estimada para este objetivo es " + total +
+          ". Eso equivale aproximadamente a +" + formatearKg(pc.lastre) + " kg de lastre.</p>";
+      } else {
+        linea = '<span class="carga-sugerida-etiqueta">Sugerencia:</span> <strong>Peso corporal</strong>';
+        extra = "";
+        detalle = "<p>Tu peso corporal actual es " + peso + esc(origen) + ". La carga total estimada para este objetivo (" + total +
+          ") no lo supera: hacelo sin lastre.</p>";
+      }
+    }
+    return (
+      '<div class="carga-sugerida carga-corporal carga-confianza-' + rec.confianza + '">' +
+      '<p class="carga-sugerida-linea">' + linea + confianza + "</p>" +
+      extra +
+      '<details class="carga-sugerida-detalle"><summary>¿Por qué?</summary>' +
+      detalle +
+      "<p>Rango orientativo de carga total: " + formatearKg(rec.rango[0]) + "–" + formatearKg(rec.rango[1]) + " kg.</p>" +
       rec.explicacion.map(function (l) { return "<p>" + esc(l) + "</p>"; }).join("") +
       '<p class="carga-sugerida-guia">' + esc(GUIA[rec.confianza]) + " Si terminás con más de 2-3 repeticiones en reserva, subí ligeramente; si no llegás a las reps, bajá.</p>" +
       "</details>" +
@@ -566,6 +640,7 @@ GYMAPP.recomendacionCarga = (function () {
     recomendar: recomendar,
     renderSugerencia: renderSugerencia,
     contextoPlan: contextoPlan,
+    pesoCorporalActual: pesoCorporalActual,
     GUIA: GUIA
   };
 })();
