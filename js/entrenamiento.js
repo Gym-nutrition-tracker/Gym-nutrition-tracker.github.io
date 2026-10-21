@@ -213,15 +213,27 @@ GYMAPP.entrenamiento = (function () {
       return html + '<p class="nota">Este día no tiene ejercicios cargados todavía.</p>';
     }
 
+    /* E6.5: carga sugerida, calculada en el momento (no se guarda). El
+       índice del historial se arma una sola vez por día elegido. */
+    var cargas = GYMAPP.recomendacionCarga;
+    var sugerencias = null;
+    if (cargas) {
+      var indice = cargas.construirIndiceHistorial(data);
+      var contexto = cargas.contextoPlan(GYMAPP.planes.planActivo(data));
+      var hoy = GYMAPP.util.fechaLocalISO(new Date());
+      sugerencias = function (ej) { return cargas.renderSugerencia(cargas.recomendar(indice, ej, { hoy: hoy, contexto: contexto })); };
+    }
+
     html += '<div class="ejercicios-entrenar">' +
-      dia.ejercicios.map(function (ej) { return renderEjercicioEntrenar(data.sesiones_entrenamiento, ej); }).join("") +
+      dia.ejercicios.map(function (ej) { return renderEjercicioEntrenar(data, ej, sugerencias); }).join("") +
       "</div>";
 
     return html;
   }
 
-  function renderEjercicioEntrenar(sesiones, ejercicio) {
-    var ultimo = obtenerUltimoRegistro(sesiones, ejercicio.id);
+  function renderEjercicioEntrenar(data, ejercicio, sugerencias) {
+    /* E6.5: mismo id, o el mismo ejercicio por nombre en otro plan. */
+    var ultimo = GYMAPP.rutinasHistoricas.buscarUltimaEjecucion(data, ejercicio);
     var series = estado.seriesPorEjercicio[ejercicio.id] || [];
 
     return (
@@ -233,6 +245,7 @@ GYMAPP.entrenamiento = (function () {
       '<div class="ejercicio-ultimo-registro">' +
       (ultimo ? "Última vez: " + GYMAPP.util.escapeHtml(formatearSeries(ultimo.series)) : "Sin registros previos") +
       "</div>" +
+      (sugerencias ? sugerencias(ejercicio) : "") +
       '<div class="series-lista">' +
       series.map(function (s, i) { return renderSerieInput(ejercicio.id, i, s); }).join("") +
       "</div>" +
@@ -549,18 +562,6 @@ GYMAPP.entrenamiento = (function () {
   }
 
   /* --- Helpers de datos --- */
-
-  function obtenerUltimoRegistro(sesiones, ejercicioId) {
-    var candidatas = sesiones.filter(function (s) {
-      return s.tipo === "gimnasio" && s.ejercicios_realizados && s.ejercicios_realizados.some(function (e) {
-        return e.ejercicio_id === ejercicioId;
-      });
-    });
-    if (!candidatas.length) return null;
-    candidatas.sort(function (a, b) { return new Date(b.fecha) - new Date(a.fecha); });
-    var registro = candidatas[0].ejercicios_realizados.filter(function (e) { return e.ejercicio_id === ejercicioId; })[0];
-    return { fecha: candidatas[0].fecha, series: registro.series };
-  }
 
   function formatearSeries(series) {
     return series.map(function (s) { return s.peso_kg + "kg x" + s.reps; }).join(" · ");

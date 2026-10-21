@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aV3, aE3 } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 
@@ -52,6 +53,7 @@ async function abrir(browser, url, registro, respuestaConfirm) {
     if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); localStorage.setItem("gymNutritionTracker_syncMeta", m); sessionStorage.setItem("sembrado", "1"); }
   }, [JSON.stringify(LOCALES), META]);
   await page.goto(url + "/index.html");
+  await seguirSinCuenta(page);
   await page.click("#btn-rutina");
   return page;
 }
@@ -148,6 +150,7 @@ const estado = (page) => page.evaluate(() => ({
     page.on("request", (q) => { if (/supabase\.co/.test(q.url())) reg.supabase.push(q.url()); });
     await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, roto);
     await page.goto(url + "/index.html");
+    await seguirSinCuenta(page);
     const textoB = await page.$eval("#app-root", (n) => n.textContent);
     check("bloqueo: muestra el aviso de migración", /No se pudo actualizar el formato de tus datos\. Tus datos anteriores se conservaron\./.test(textoB), textoB.slice(0, 200));
     check("bloqueo: no arranca la app (sin navegación)", (await page.$("#nav-dashboard")) === null);

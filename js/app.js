@@ -1,4 +1,17 @@
-/* Punto de entrada: decide entre onboarding y la app principal, y arma el shell con bottom nav. */
+/* Punto de entrada: pantalla de acceso (AUTH-04), onboarding de perfil o
+   la app principal, y arma el shell con bottom nav.
+
+   Arranque:
+     bloqueo de migración          → aviso y nada más
+     acceso sin resolver           → "Cargando…" mientras Supabase recupera
+                                     la sesión; con sesión válida se sigue,
+                                     sin sesión se muestra la pantalla de
+                                     acceso (Google, email o "Seguir sin
+                                     cuenta")
+     sin perfil local              → onboarding de perfil
+     con perfil                    → shell (y ONB-03 si corresponde)
+   La cuenta nunca es obligatoria: sin Supabase disponible se entra directo
+   en modo local, como antes. */
 var GYMAPP = window.GYMAPP || (window.GYMAPP = {});
 
 GYMAPP.app = (function () {
@@ -10,6 +23,17 @@ GYMAPP.app = (function () {
   ];
 
   var tabActual = "dashboard";
+
+  /* AUTH-04: estado del arranque, solo en memoria (nada se persiste).
+     vista: "cargando" | "acceso" | "perfil" | "app". */
+  var accesoResuelto = false;
+  var vista = null;
+  var habiaSesion = false;
+  var escuchandoSesion = false;
+  var errorOAuthMostrado = false;
+  /* Si Supabase no responde (por ejemplo, sin red con un token vencido),
+     no se espera más que esto para mostrar el acceso. */
+  var ESPERA_MAXIMA_SESION_MS = 4000;
 
   function root() {
     return document.getElementById("app-root");
@@ -30,11 +54,95 @@ GYMAPP.app = (function () {
         "</div>";
       return;
     }
+    if (!accesoResuelto) {
+      arrancarAcceso();
+      return;
+    }
+    continuar();
+  }
+
+  function continuar() {
+    var data = GYMAPP.storage.getData();
     if (!data.usuario) {
+      vista = "perfil";
       GYMAPP.onboarding.render(root());
       return;
     }
+    vista = "app";
     renderShell(data);
+  }
+
+  function tieneUsuario(sesion) {
+    return !!(sesion && sesion.user);
+  }
+
+  function arrancarAcceso() {
+    var auth = GYMAPP.auth;
+    if (!auth || !auth.disponible()) {
+      accesoResuelto = true;
+      continuar();
+      return;
+    }
+    vista = "cargando";
+    root().innerHTML = '<div class="pantalla pantalla-cargando" role="status"><p class="nota">Cargando…</p></div>';
+    if (!escuchandoSesion) {
+      escuchandoSesion = true;
+      auth.suscribirCambiosSesion(alCambiarSesion);
+    }
+    var decidido = false;
+    var decidir = function (sesion) {
+      if (decidido || vista !== "cargando") return;
+      decidido = true;
+      if (tieneUsuario(sesion)) entrar();
+      else mostrarAcceso();
+    };
+    auth.inicializar().then(decidir);
+    setTimeout(function () { decidir(auth.obtenerSesion()); }, ESPERA_MAXIMA_SESION_MS);
+  }
+
+  /* Login (email o Google) desde el acceso → se entra. Logout desde la app
+     → vuelve al acceso. El blob local nunca se toca. */
+  function alCambiarSesion(sesion) {
+    var hay = tieneUsuario(sesion);
+    if (vista === "acceso" && hay) {
+      entrar();
+    } else if ((vista === "app" || vista === "perfil") && habiaSesion && !hay) {
+      accesoResuelto = false;
+      mostrarAcceso();
+    }
+    habiaSesion = hay;
+  }
+
+  function entrar() {
+    accesoResuelto = true;
+    habiaSesion = tieneUsuario(GYMAPP.auth.obtenerSesion());
+    continuar();
+  }
+
+  function seguirSinCuenta() {
+    accesoResuelto = true;
+    continuar();
+  }
+
+  function mostrarAcceso() {
+    vista = "acceso";
+    tabActual = "dashboard";
+    if (GYMAPP.primerUso && GYMAPP.primerUso.guiaAbierta()) GYMAPP.primerUso.cerrarGuia();
+    root().innerHTML = '<div id="acceso"></div>';
+    var cont = document.getElementById("acceso");
+    var pintar = function () { cont.innerHTML = GYMAPP.auth.renderPantallaAcceso(); };
+    pintar();
+    GYMAPP.auth.bindEventosCuenta(cont, pintar);
+    cont.addEventListener("click", function (ev) {
+      if (ev.target.closest('[data-accion="acceso-sin-cuenta"]')) seguirSinCuenta();
+    });
+    /* Vuelta de un login con Google cancelado o fallido: avisar una vez y
+       limpiar la URL. */
+    if (!errorOAuthMostrado && GYMAPP.auth.hayErrorOAuthEnUrl(window.location)) {
+      errorOAuthMostrado = true;
+      GYMAPP.auth.mostrarMensajeAcceso(cont, "No pudimos iniciar sesión con Google.", "error");
+      if (window.history && window.history.replaceState) window.history.replaceState(null, "", window.location.pathname);
+    }
   }
 
   function renderShell(data) {
@@ -134,7 +242,8 @@ GYMAPP.app = (function () {
   return { iniciar: iniciar, irA: irA };
 })();
 
+/* AUTH-04: auth.inicializar() ahora lo llama iniciar() (pantalla de
+   acceso), para decidir con la sesión ya recuperada. */
 document.addEventListener("DOMContentLoaded", function () {
   GYMAPP.app.iniciar();
-  if (GYMAPP.auth) GYMAPP.auth.inicializar();
 });

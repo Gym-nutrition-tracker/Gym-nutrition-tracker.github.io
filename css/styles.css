@@ -2601,3 +2601,157 @@ body.guia-activa .bottom-nav {
 .guia-acciones .btn-secundario + .btn-secundario {
   margin-left: 0;
 }
+
+/* --- AUTH-04: pantalla inicial de acceso --- */
+.pantalla-cargando {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pantalla-acceso {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: calc(28px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.acceso-card {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: 16px;
+  padding: 20px 16px;
+}
+
+.acceso-card h2 {
+  margin: 0 0 4px;
+  font-size: 1.45rem;
+}
+
+.acceso-subtitulo {
+  margin: 0 0 16px;
+}
+
+.acceso-card .campo input {
+  background: var(--color-fondo);
+}
+
+.acceso-card .mensaje {
+  margin-bottom: 12px;
+}
+
+/* Google: botón claro, la acción más visible de la pantalla. */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  background: #FFFFFF;
+  color: #1F1F1F;
+  border: 1px solid #DADCE0;
+  font-weight: 600;
+}
+
+.btn-google:disabled {
+  opacity: 0.7;
+}
+
+.btn-google .google-logo {
+  flex: none;
+}
+
+.acceso-separador {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 12px;
+  color: var(--color-texto-secundario);
+  font-size: 0.85rem;
+}
+
+.acceso-separador::before,
+.acceso-separador::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-borde);
+}
+
+.acceso-enlaces {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--color-texto-secundario);
+}
+
+.acceso-enlaces .btn-enlace {
+  display: inline;
+  width: auto;
+  margin: 0;
+  padding: 4px 2px;
+}
+
+.acceso-local {
+  margin-top: 18px;
+  text-align: center;
+}
+
+.acceso-local .acceso-sin-cuenta {
+  color: var(--color-texto);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  margin-top: 0;
+}
+
+.acceso-local .nota {
+  margin: 2px 0 0;
+}
+
+/* --- E6.5: carga sugerida en Entrenar (compacta, expandible) --- */
+.carga-sugerida {
+  margin: -4px 0 10px;
+  font-size: 0.8rem;
+  color: var(--color-texto-secundario);
+}
+
+.carga-sugerida-linea {
+  margin: 0;
+  color: var(--color-texto);
+}
+
+.carga-sugerida-linea strong {
+  color: var(--color-celeste);
+  font-weight: 600;
+}
+
+.carga-sugerida-confianza {
+  color: var(--color-texto-secundario);
+}
+
+.carga-sugerida-detalle {
+  margin-top: 2px;
+}
+
+.carga-sugerida-detalle summary {
+  cursor: pointer;
+  color: var(--color-primario);
+  font-size: 0.78rem;
+  width: max-content;
+  padding: 2px 0;
+}
+
+.carga-sugerida-detalle p {
+  margin: 4px 0 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.carga-sugerida-guia {
+  color: var(--color-texto);
+}
+
+.carga-sin-externa,
+.carga-sin-datos {
+  margin: -4px 0 10px;
+}

@@ -6,6 +6,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aE3 } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 const { crearPdf, LINEAS_PLAN_EJEMPLO } = require("../fixtures/pdf-sintetico");
@@ -49,6 +50,7 @@ function servir(dir) {
   /* Una sesión E5 bajo el plan activo (A), para verificar que no cambia. */
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(inicial));
   await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+  await seguirSinCuenta(page);
   await page.evaluate(() => {
     const d = GYMAPP.storage.getData();
     const dia = GYMAPP.planes.diasDelPlanActivo(d)[0];

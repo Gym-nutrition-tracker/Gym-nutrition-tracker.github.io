@@ -100,7 +100,52 @@ GYMAPP.rutinasHistoricas = (function () {
     return resolverNombreDiaRutina(data, sesion.dia_rutina_id);
   }
 
+  /* E6.5: identidad ESTRICTA de un ejercicio por nombre: sin acentos,
+     mayúsculas ni espacios de más, y "c/" = "con". "PRESS BANCA C/BARRA"
+     y "Press banca con barra" son el mismo ejercicio; "Press inclinado con
+     mancuernas" y "Press inclinado en Smith" NO. Única normalización para
+     "Última vez" y para la carga sugerida. */
+  function claveEjercicio(nombre) {
+    return String(nombre || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\bc\//g, "con ")
+      .replace(/[´'`]/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /* "Última vez" de un ejercicio del plan: la ejecución más reciente
+     1. con el mismo ejercicio_id, o si no hay ninguna,
+     2. del mismo ejercicio por nombre (claveEjercicio), aunque el id haya
+        cambiado entre planes (legacy, planes archivados, snapshots E5).
+     Nunca variantes ni ejercicios relacionados. { fecha, series } o null.
+     Solo lectura. */
+  function buscarUltimaEjecucion(data, ejercicio) {
+    var sesiones = ((data && data.sesiones_entrenamiento) || []).filter(function (s) {
+      return s && s.tipo === "gimnasio" && Array.isArray(s.ejercicios_realizados);
+    });
+    var masReciente = function (coincide) {
+      var mejor = null;
+      sesiones.forEach(function (s) {
+        var er = s.ejercicios_realizados.filter(function (e) { return coincide(s, e); })[0];
+        if (er && (!mejor || new Date(s.fecha) > new Date(mejor.fecha))) mejor = { fecha: s.fecha, series: er.series };
+      });
+      return mejor;
+    };
+    var porId = masReciente(function (s, e) { return e.ejercicio_id === ejercicio.id; });
+    if (porId) return porId;
+    var clave = claveEjercicio(ejercicio.nombre);
+    if (!clave) return null;
+    return masReciente(function (s, e) {
+      var resuelto = resolverEjercicioDeSesion(data, s, e);
+      return !!resuelto && claveEjercicio(resuelto.nombre) === clave;
+    });
+  }
+
   return {
+    claveEjercicio: claveEjercicio,
+    buscarUltimaEjecucion: buscarUltimaEjecucion,
     resolverEjercicioDeSesion: resolverEjercicioDeSesion,
     resolverNombreDiaDeSesion: resolverNombreDiaDeSesion,
     resolverNombreBloqueHistorico: resolverNombreBloqueHistorico,

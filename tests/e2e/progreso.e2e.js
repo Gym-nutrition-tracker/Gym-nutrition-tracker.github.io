@@ -11,6 +11,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aV3 } = require("../entorno");
 
 const RAIZ = path.join(__dirname, "..", "..");
@@ -75,6 +76,7 @@ async function recorrer(browser, url) {
   const datos = JSON.stringify(dataset());
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, datos);
   await page.goto(url + "/index.html");
+  await seguirSinCuenta(page);
   await page.waitForSelector("#nav-dashboard");
 
   const html = {};

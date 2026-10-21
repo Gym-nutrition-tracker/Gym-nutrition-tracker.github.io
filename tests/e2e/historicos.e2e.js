@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 const { aV3, aE3 } = require("../entorno");
 
@@ -47,6 +48,7 @@ const puntosGrafico = (page) => page.evaluate(() => {
   const datos = JSON.stringify(datasetHistoricos());
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, datos);
   await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+  await seguirSinCuenta(page);
   await page.click("#nav-progreso");
 
   const r = [];
@@ -104,6 +106,7 @@ const puntosGrafico = (page) => page.evaluate(() => {
     const datosL = JSON.stringify(datasetHistoricos({ legacy: true }));
     await pageL.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, datosL);
     await pageL.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+    await seguirSinCuenta(pageL);
     await pageL.click("#nav-progreso");
     const legacyEsperado = ["EMPUJE · 4 sesiones", "PIERNAS (ENFOQUE EN CUADRICEPS) · 5 sesiones", "TRACCIÓN · 5 sesiones", "PIERNAS (ENFOQUE EN ISQUIOS) · 4 sesiones", "TREN SUPERIOR · 4 sesiones"];
     for (const seccion of ["evolucion", "analisis"]) {

@@ -7,6 +7,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { datasetEntrenar } = require("../fixtures/entrenar-historial-dataset");
 const { aE3 } = require("../entorno");
 
@@ -38,6 +39,7 @@ async function abrir(browser, url, registro) {
   await page.clock.pauseAt(new Date(AHORA));
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(datasetEntrenar()));
   await page.goto(url + "/index.html");
+  await seguirSinCuenta(page);
   await page.click("#nav-entrenar");
   return page;
 }

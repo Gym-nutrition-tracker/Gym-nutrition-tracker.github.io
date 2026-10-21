@@ -5,6 +5,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aE3 } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 
@@ -51,6 +52,7 @@ function datos() {
   const inicial = datos();
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(inicial));
   await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+  await seguirSinCuenta(page);
 
   const r = [];
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });

@@ -9,6 +9,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { crearEntorno, aE3, clonar } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 const { crearPdf, LINEAS_PLAN_EJEMPLO } = require("../fixtures/pdf-sintetico");
@@ -67,6 +68,7 @@ function unaSesion() { const d = historial(); d.sesiones_entrenamiento = d.sesio
     await page.clock.pauseAt(new Date(AHORA));
     await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(datos));
     await page.goto("http://127.0.0.1:" + (opciones.srv || srvNuevo).address().port + "/index.html");
+    await seguirSinCuenta(page);
     page.leer = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), CLAVE);
     page.texto = (sel) => page.$eval(sel, (n) => n.textContent.replace(/\s+/g, " ").trim());
     page.hay = async (sel) => (await page.$(sel)) !== null;
@@ -195,6 +197,7 @@ function unaSesion() { const d = historial(); d.sesiones_entrenamiento = d.sesio
 
     /* Recarga: no reaparece. */
     await p.reload();
+    await seguirSinCuenta(p);
     check("A. después de completarlo no reaparece al recargar", !(await p.hay("#guia-inicio")));
     await p.click("#btn-rutina");
     await p.click('[data-accion="ver-guia"]');
@@ -209,6 +212,7 @@ function unaSesion() { const d = historial(); d.sesiones_entrenamiento = d.sesio
     await p.click('[data-guia="omitir"]');
     check("A. 'Omitir' cierra y guarda completado", !(await p.hay("#guia-inicio")) && (await p.leer()).onboarding.completado === true);
     await p.reload();
+    await seguirSinCuenta(p);
     check("A. después de omitir no reaparece", !(await p.hay("#guia-inicio")));
     await p.cerrarCtx();
 
@@ -331,7 +335,10 @@ function unaSesion() { const d = historial(); d.sesiones_entrenamiento = d.sesio
         return c.innerHTML;
       });
       await p2.cerrarCtx();
-      check("D. Rutina idéntica a la base salvo 'Cargar / cambiar plan' y 'Ver guía de inicio'", rutinaSinAgregados === base.rutina);
+      /* Base que ya incluye ONB-03 (por ejemplo, HEAD): Rutina completa
+         idéntica. Base anterior: idéntica salvo los dos agregados. */
+      if (/plan-cargar/.test(base.rutina)) check("D. Rutina idéntica a la base (ya con ONB-03)", html.rutina === base.rutina);
+      else check("D. Rutina idéntica a la base salvo 'Cargar / cambiar plan' y 'Ver guía de inicio'", rutinaSinAgregados === base.rutina);
     }
 
     /* ---------- E. 320 px ---------- */

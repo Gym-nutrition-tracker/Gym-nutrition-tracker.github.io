@@ -6,6 +6,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aE3 } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 
@@ -56,6 +57,7 @@ function datosIniciales() {
   await page.clock.pauseAt(new Date(AHORA));
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(datosIniciales()));
   await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+  await seguirSinCuenta(page);
 
   /* Sesión S guardada bajo A (E5) y DESPUÉS se activa el plan B (E6). */
   await page.evaluate(() => {
@@ -74,6 +76,7 @@ function datosIniciales() {
     GYMAPP.storage.guardarConCopiaPrevia("gymNutritionTracker_preCambioPlan", p.datos, "2026-11-09T17:00:00.000Z");
   });
   await page.reload();
+  await seguirSinCuenta(page);
 
   const r = [];
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });

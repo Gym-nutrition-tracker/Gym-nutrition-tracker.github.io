@@ -179,7 +179,9 @@ function crearEntorno(opciones) {
   cargar("js/rutinasHistoricas.js");
   cargar("js/primerUso.js");
 
-  const auth = { sesion: null, eventos: null, llamadas: [] };
+  /* respuestaOAuth: función opcional que reemplaza la respuesta de
+     signInWithOAuth (por ejemplo, para simular un error). */
+  const auth = { sesion: null, eventos: null, llamadas: [], respuestaOAuth: null };
   if (opciones.authReal) {
     /* SDK de Supabase falso: el cliente de datos es el de la nube falsa,
        más un objeto auth que registra llamadas. */
@@ -188,7 +190,12 @@ function crearEntorno(opciones) {
       onAuthStateChange: (fn) => { auth.eventos = fn; },
       signInWithPassword: (p) => { auth.llamadas.push(["signInWithPassword", p]); return Promise.resolve({ data: {}, error: null }); },
       signUp: (p) => { auth.llamadas.push(["signUp", p]); return Promise.resolve({ data: {}, error: null }); },
-      signOut: () => { auth.llamadas.push(["signOut"]); return Promise.resolve({ error: null }); }
+      signOut: () => { auth.llamadas.push(["signOut"]); return Promise.resolve({ error: null }); },
+      signInWithOAuth: (p) => {
+        auth.llamadas.push(["signInWithOAuth", p]);
+        if (auth.respuestaOAuth) return auth.respuestaOAuth(p);
+        return Promise.resolve({ data: { provider: p.provider, url: "https://proyecto.supabase.co/auth/v1/authorize?provider=" + p.provider }, error: null });
+      }
     };
     ctx.supabase = {
       createClient: (url, key, opts) => { registro.createClient = { url, key, opts }; return nube.cliente; }

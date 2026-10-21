@@ -1,5 +1,6 @@
 /* Autenticación opcional con Supabase Auth mediante email + contraseña
-   (supabase.auth.signUp / signInWithPassword). Objetivo a futuro: que la
+   (supabase.auth.signUp / signInWithPassword) y, desde AUTH-04, Google
+   (signInWithOAuth) desde la pantalla inicial de acceso. Objetivo: que la
    misma cuenta se use en celular, tablet y computadora para sincronizar
    datos propios; esta versión implementa exclusivamente la autenticación,
    sin ninguna sincronización todavía. Este módulo es completamente
@@ -24,6 +25,37 @@ GYMAPP.auth = (function () {
   var STORAGE_KEY_AUTH = "gymNutritionTracker_supabaseAuth";
 
   var LARGO_MINIMO_PASSWORD = 6;
+
+  /* AUTH-04: única URL a la que puede volver el login con Google (la app
+     publicada en GitHub Pages). Nunca se toma de la URL actual ni de
+     parámetros: así no hay open redirect posible. Tiene que estar en
+     Supabase -> Authentication -> URL Configuration -> Redirect URLs. */
+  var URL_APP = "https://nico6896.github.io/Agente-AI-de-prueba/";
+
+  /* AUTH-04: la sesión de Supabase se guarda bajo STORAGE_KEY_AUTH igual
+     que antes, pero sin provider_token ni provider_refresh_token (los
+     tokens de Google que Supabase incluye en la sesión OAuth). La app no
+     los usa y no deben quedar persistidos. Cualquier otro valor (por
+     ejemplo, el code verifier) pasa tal cual. */
+  function sinTokensProveedor(valor) {
+    var obj;
+    try {
+      obj = JSON.parse(valor);
+    } catch (e) {
+      return valor;
+    }
+    if (!obj || typeof obj !== "object") return valor;
+    if (!("provider_token" in obj) && !("provider_refresh_token" in obj)) return valor;
+    delete obj.provider_token;
+    delete obj.provider_refresh_token;
+    return JSON.stringify(obj);
+  }
+
+  var almacenamientoSesion = {
+    getItem: function (clave) { return window.localStorage.getItem(clave); },
+    setItem: function (clave, valor) { window.localStorage.setItem(clave, sinTokensProveedor(valor)); },
+    removeItem: function (clave) { window.localStorage.removeItem(clave); }
+  };
 
   var cliente = null;
   var clienteFalló = false;
@@ -62,6 +94,7 @@ GYMAPP.auth = (function () {
       cliente = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: {
           storageKey: STORAGE_KEY_AUTH,
+          storage: almacenamientoSesion,
           persistSession: true,
           autoRefreshToken: true,
           /* El login normal sigue siendo exclusivamente por email +
@@ -74,9 +107,10 @@ GYMAPP.auth = (function () {
              por resetPasswordForEmail). Con este valor en false, al volver
              de ese enlace el SDK nunca leía los parámetros de la URL, nunca
              armaba la sesión de recuperación y por eso el evento
-             PASSWORD_RECOVERY jamás se disparaba. Ningún otro flujo del
-             login normal queda afectado: ninguna otra función de este
-             módulo pone tokens de sesión en la URL. */
+             PASSWORD_RECOVERY jamás se disparaba. AUTH-04 usa el mismo
+             mecanismo para la vuelta del login con Google
+             (signInWithOAuth), que también regresa a URL_APP con la sesión
+             en la URL. */
           detectSessionInUrl: true
         }
       });
@@ -104,18 +138,63 @@ GYMAPP.auth = (function () {
      simplemente queda en null y la app sigue funcionando sin login. Como
      persistSession guarda la sesión bajo STORAGE_KEY_AUTH, esto es lo que
      recupera el login al cerrar y volver a abrir la PWA. */
+  /* AUTH-04: devuelve una promesa con la sesión recuperada (o null); nunca
+     se rechaza. app.js la usa para decidir si mostrar la pantalla de
+     acceso. Al volver de Google, getSession espera a que el SDK lea la
+     sesión de la URL (detectSessionInUrl). */
   function inicializar() {
     var c = obtenerCliente();
-    if (!c) return;
-    c.auth
+    if (!c) return Promise.resolve(null);
+    return c.auth
       .getSession()
       .then(function (resultado) {
         sesionActual = resultado && resultado.data ? resultado.data.session : null;
         notificarCambio();
+        return sesionActual;
       })
       .catch(function (e) {
         console.error("No se pudo recuperar la sesión de Supabase", e);
+        return null;
       });
+  }
+
+  /* true si hay cliente de Supabase (configurado y SDK cargado). */
+  function disponible() {
+    return !!obtenerCliente();
+  }
+
+  /* AUTH-04: redirectTo del login con Google. Siempre la URL publicada de
+     la app, nunca derivada de la URL actual. */
+  function obtenerRedirectOAuth() {
+    return URL_APP;
+  }
+
+  /* Abre el login de Google (Supabase redirige el navegador). Sin scopes
+     extra: Supabase pide solo los básicos (email y perfil). prompt
+     select_account deja elegir la cuenta de Google en cada intento. */
+  function iniciarSesionGoogle() {
+    var c = obtenerCliente();
+    if (!c) return Promise.reject(new Error("Supabase no está configurado."));
+    return c.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: obtenerRedirectOAuth(),
+        queryParams: { prompt: "select_account" }
+      }
+    });
+  }
+
+  /* true si la URL trae el error con el que Supabase vuelve de un login
+     OAuth fallido o cancelado (?error=... o #error=...). */
+  function hayErrorOAuthEnUrl(ubicacion) {
+    var u = ubicacion || window.location;
+    var partes = [String(u.search || "").replace(/^\?/, ""), String(u.hash || "").replace(/^#/, "")];
+    return partes.some(function (p) {
+      return p.split("&").some(function (par) {
+        var clave = par.split("=")[0];
+        return clave === "error" || clave === "error_description";
+      });
+    });
   }
 
   function obtenerSesion() {
@@ -187,6 +266,12 @@ GYMAPP.auth = (function () {
 
   var REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+  /* escapeHtml no escapa comillas (usa innerHTML); dentro de un atributo
+     value="..." hace falta, o un email con " se saldría del atributo. */
+  function escaparAtributo(v) {
+    return GYMAPP.util.escapeHtml(v).replace(/"/g, "&quot;");
+  }
+
   function renderSeccionCuenta() {
     if (!configurado()) {
       return (
@@ -237,7 +322,7 @@ GYMAPP.auth = (function () {
       '<div class="campo">' +
       '<label for="input-email-cuenta">Email</label>' +
       '<input type="email" id="input-email-cuenta" placeholder="tu@email.com" value="' +
-      GYMAPP.util.escapeHtml(estadoCuenta.email) +
+      escaparAtributo(estadoCuenta.email) +
       '" autocomplete="email" />' +
       "</div>" +
       '<div class="campo">' +
@@ -273,7 +358,7 @@ GYMAPP.auth = (function () {
       '<div class="campo">' +
       '<label for="input-email-cuenta">Email</label>' +
       '<input type="email" id="input-email-cuenta" placeholder="tu@email.com" value="' +
-      GYMAPP.util.escapeHtml(estadoCuenta.email) +
+      escaparAtributo(estadoCuenta.email) +
       '" autocomplete="email" />' +
       "</div>" +
       '<button type="button" data-accion="enviar-recuperacion" class="btn btn-primario btn-ancho">Enviar enlace de recuperación</button>' +
@@ -304,6 +389,127 @@ GYMAPP.auth = (function () {
     );
   }
 
+  /* --- AUTH-04: pantalla inicial de acceso (antes del shell) ---
+     Reutiliza los mismos ids y handlers del formulario de Cuenta
+     (bindEventosCuenta), así login, registro y recuperación son los mismos
+     flujos. Google arriba, email/contraseña en el medio y "Seguir sin
+     cuenta" como acción secundaria (la maneja app.js). */
+
+  var LOGO_GOOGLE =
+    '<svg class="google-logo" viewBox="0 0 48 48" width="18" height="18" aria-hidden="true" focusable="false">' +
+    '<path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>' +
+    '<path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>' +
+    '<path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>' +
+    '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>' +
+    "</svg>";
+
+  var estadoGoogle = { cargando: false };
+
+  function renderBotonGoogle() {
+    return (
+      '<button type="button" data-accion="acceso-google" class="btn btn-google btn-ancho"' + (estadoGoogle.cargando ? " disabled" : "") + ">" +
+      LOGO_GOOGLE + "<span>" + (estadoGoogle.cargando ? "Abriendo Google…" : "Continuar con Google") + "</span></button>"
+    );
+  }
+
+  function renderPantallaAcceso() {
+    var esc = GYMAPP.util.escapeHtml;
+    var modo = estadoCuenta.modo;
+    var cuerpo;
+    if (modo === "recuperar-password") {
+      cuerpo =
+        "<h2>Recuperar contraseña</h2>" +
+        '<div id="cuenta-mensaje" class="mensaje oculto" role="status"></div>' +
+        '<p class="nota">Ingresá tu email y te enviamos un enlace para recuperar tu contraseña.</p>' +
+        '<div class="campo"><label for="input-email-cuenta">Email</label>' +
+        '<input type="email" id="input-email-cuenta" placeholder="tu@email.com" value="' + escaparAtributo(estadoCuenta.email) + '" autocomplete="email" /></div>' +
+        '<button type="button" data-accion="enviar-recuperacion" class="btn btn-primario btn-ancho">Enviar enlace de recuperación</button>' +
+        '<button type="button" data-accion="modo-iniciar-sesion" class="btn-enlace">Volver a iniciar sesión</button>';
+    } else {
+      var crear = modo === "crear-cuenta";
+      cuerpo =
+        "<h2>Bienvenido</h2>" +
+        '<p class="nota acceso-subtitulo">Guardá y sincronizá tu progreso entre dispositivos.</p>' +
+        '<div id="cuenta-mensaje" class="mensaje oculto" role="status"></div>' +
+        renderBotonGoogle() +
+        '<div class="acceso-separador" role="separator"><span>o</span></div>' +
+        '<div class="campo"><label for="input-email-cuenta">Email</label>' +
+        '<input type="email" id="input-email-cuenta" placeholder="tu@email.com" value="' + escaparAtributo(estadoCuenta.email) + '" autocomplete="email" /></div>' +
+        '<div class="campo"><label for="input-password-cuenta">Contraseña</label>' +
+        '<input type="password" id="input-password-cuenta" placeholder="••••••••" autocomplete="' + (crear ? "new-password" : "current-password") + '" /></div>' +
+        (crear
+          ? '<div class="campo"><label for="input-password-confirmar-cuenta">Repetir contraseña</label>' +
+            '<input type="password" id="input-password-confirmar-cuenta" placeholder="••••••••" autocomplete="new-password" /></div>' +
+            '<button type="button" data-accion="crear-cuenta" class="btn btn-primario btn-ancho">Crear cuenta</button>' +
+            '<p class="acceso-enlaces">¿Ya tenés cuenta? <button type="button" data-accion="modo-iniciar-sesion" class="btn-enlace">Iniciar sesión</button></p>'
+          : '<button type="button" data-accion="iniciar-sesion" class="btn btn-primario btn-ancho">Iniciar sesión</button>' +
+            '<p class="acceso-enlaces">¿No tenés cuenta? <button type="button" data-accion="modo-crear-cuenta" class="btn-enlace">Crear cuenta</button></p>' +
+            '<p class="acceso-enlaces"><button type="button" data-accion="modo-recuperar-password" class="btn-enlace">¿Olvidaste tu contraseña?</button></p>');
+    }
+    return (
+      '<div class="pantalla-acceso">' +
+      '<section class="acceso-card" aria-labelledby="acceso-titulo">' +
+      cuerpo.replace("<h2>", '<h2 id="acceso-titulo">') +
+      "</section>" +
+      '<div class="acceso-local">' +
+      '<button type="button" data-accion="acceso-sin-cuenta" class="btn-enlace acceso-sin-cuenta">Seguir sin cuenta</button>' +
+      '<p class="nota">Podés iniciar sesión más adelante para sincronizar tus datos.</p>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  var MENSAJE_ERROR_GOOGLE = "No pudimos iniciar sesión con Google.";
+
+  function restaurarBotonGoogle(boton) {
+    estadoGoogle.cargando = false;
+    if (!boton) return;
+    boton.disabled = false;
+    var texto = boton.querySelector("span");
+    if (texto) texto.textContent = "Continuar con Google";
+  }
+
+  function manejarGoogle(container, boton) {
+    if (estadoGoogle.cargando) return;
+    if (window.navigator && window.navigator.onLine === false) {
+      mostrarMensajeCuenta(container, "No hay conexión a internet. Podés seguir sin cuenta y sincronizar más adelante.", "error");
+      return;
+    }
+    estadoGoogle.cargando = true;
+    boton.disabled = true;
+    var texto = boton.querySelector("span");
+    /* El estado se muestra en el propio botón: un mensaje arriba lo
+       desplazaría justo cuando se está tocando. */
+    if (texto) texto.textContent = "Abriendo Google…";
+    var promesa;
+    try {
+      promesa = iniciarSesionGoogle();
+    } catch (e) {
+      promesa = Promise.reject(e);
+    }
+    promesa
+      .then(function (resultado) {
+        /* Sin error el SDK ya está redirigiendo a Google: el botón queda
+           bloqueado hasta que la página cambie. */
+        if (resultado && resultado.error) {
+          restaurarBotonGoogle(boton);
+          mostrarMensajeCuenta(container, MENSAJE_ERROR_GOOGLE, "error");
+        }
+      })
+      .catch(function (e) {
+        console.error("No se pudo iniciar el login con Google", e);
+        restaurarBotonGoogle(boton);
+        mostrarMensajeCuenta(container, MENSAJE_ERROR_GOOGLE, "error");
+      });
+  }
+
+  /* Si el navegador vuelve a esta página desde la caché (botón Atrás
+     desde Google), el botón no debe quedar bloqueado. */
+  window.addEventListener && window.addEventListener("pageshow", function (ev) {
+    if (!ev.persisted || !estadoGoogle.cargando) return;
+    restaurarBotonGoogle(document.querySelector('[data-accion="acceso-google"]'));
+  });
+
   function mostrarMensajeCuenta(container, texto, tipo) {
     var el = container.querySelector("#cuenta-mensaje");
     if (!el) return;
@@ -324,7 +530,7 @@ GYMAPP.auth = (function () {
         '[data-accion="modo-recuperar-password"], [data-accion="enviar-recuperacion"], ' +
         '[data-accion="actualizar-password"], ' +
         '[data-accion="iniciar-sesion"], [data-accion="crear-cuenta"], ' +
-        '[data-accion="cerrar-sesion-cuenta"]'
+        '[data-accion="cerrar-sesion-cuenta"], [data-accion="acceso-google"]'
       );
       if (!boton) return;
       var accion = boton.dataset.accion;
@@ -348,6 +554,8 @@ GYMAPP.auth = (function () {
         manejarCrearCuenta(container, boton);
       } else if (accion === "cerrar-sesion-cuenta") {
         manejarCerrarSesion(container, boton, alCambiarEstado);
+      } else if (accion === "acceso-google") {
+        manejarGoogle(container, boton);
       }
     });
   }
@@ -552,6 +760,14 @@ GYMAPP.auth = (function () {
 
   return {
     inicializar: inicializar,
+    disponible: disponible,
+    obtenerRedirectOAuth: obtenerRedirectOAuth,
+    iniciarSesionGoogle: iniciarSesionGoogle,
+    hayErrorOAuthEnUrl: hayErrorOAuthEnUrl,
+    renderPantallaAcceso: renderPantallaAcceso,
+    mostrarMensajeAcceso: mostrarMensajeCuenta,
+    /* Expuesto para tests. */
+    sinTokensProveedor: sinTokensProveedor,
     /* Expuesto para SYNC-01 (js/sync.js): reutiliza el mismo cliente/sesión
        de Supabase que ya administra este módulo (auth.js sigue siendo el
        único dueño de su ciclo de vida), en vez de que sync.js cree un

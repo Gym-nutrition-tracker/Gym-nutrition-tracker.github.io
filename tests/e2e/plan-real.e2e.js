@@ -18,6 +18,7 @@ if (!RUTA || !fs.existsSync(RUTA)) {
 }
 
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const { seguirSinCuenta } = require("./acceso-helper");
 const { aE3 } = require("../entorno");
 const { datasetHistoricos } = require("../fixtures/historicos-dataset");
 const ESPERADO = require("../fixtures/plan-real-n4-esperado.json");
@@ -52,6 +53,7 @@ function servir(dir) {
   page.on("dialog", (d) => d.accept());
   await page.addInitScript((d) => { if (!sessionStorage.getItem("sembrado")) { localStorage.setItem("gymNutritionTracker", d); sessionStorage.setItem("sembrado", "1"); } }, JSON.stringify(aE3(datasetHistoricos({ legacy: true }))));
   await page.goto("http://127.0.0.1:" + srv.address().port + "/index.html");
+  await seguirSinCuenta(page);
 
   const r = [];
   const check = (nombre, ok, detalle) => r.push({ nombre, ok: !!ok, detalle });
