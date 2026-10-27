@@ -2362,7 +2362,7 @@ GYMAPP.progreso = (function () {
 
     if (estadoAnalisis.ejercicioId) {
       titulo = "Próxima vez en este ejercicio";
-      cuerpo = renderProximaVezEjercicio(data);
+      cuerpo = renderProximaVezEjercicio(data, estadoPlan);
     } else {
       titulo = "Próxima sesión";
       var esActivo = bloqueEsActivo(data, estadoAnalisis.bloqueId);
@@ -2467,7 +2467,7 @@ GYMAPP.progreso = (function () {
 
   /* --- UI: "Próxima vez en este ejercicio" (PROG-03) --- */
 
-  function renderProximaVezEjercicio(data) {
+  function renderProximaVezEjercicio(data, estadoPlan) {
     var ejecuciones = reconstruirEjecucionesEjercicio(data.sesiones_entrenamiento, estadoAnalisis.ejercicioId);
     if (!ejecuciones.length) {
       return '<p class="nota">Todavía no hay registros de este ejercicio.</p>';
@@ -2479,6 +2479,20 @@ GYMAPP.progreso = (function () {
 
     var ejercicioRutina = obtenerEjercicioDeRutina(data, estadoAnalisis.bloqueId, estadoAnalisis.ejercicioId);
     var rangoReps = ejercicioRutina ? parsearRangoReps(ejercicioRutina.reps_objetivo) : null;
+
+    /* PROG-04.1: con el ejercicio del plan, la acción concreta (carga y
+       reps). Sin él (ejercicios de planes viejos), la guía de PROG-03. */
+    var proxima = GYMAPP.proximaSesion;
+    var cargas = GYMAPP.recomendacionCarga;
+    if (proxima && cargas && ejercicioRutina) {
+      var rec = proxima.recomendar(data, ejercicioRutina, {
+        hoy: GYMAPP.util.fechaLocalISO(new Date()),
+        contexto: cargas.contextoPlan(GYMAPP.planes.planActivo(data)),
+        pesoCorporal: cargas.pesoCorporalActual(data),
+        estadoPlan: estadoPlan ? estadoPlan.estado : null
+      });
+      if (rec.tipo === "accion") return renderTarjetaProximaSesion(rec, ultimo.datos);
+    }
 
     var recomendacion = calcularRecomendacionEjercicio({
       cantidadEjecuciones: ejecuciones.length,
@@ -2508,17 +2522,34 @@ GYMAPP.progreso = (function () {
     "Seguimiento cualitativo": "•"
   };
 
-  /* "Última referencia" (sección 15): peso máximo + reps de CADA serie de
-     la última ejecución (no solo las "principales": acá es solo una
-     referencia informativa, no la señal usada para decidir la regla).
-     Con peso corporal nunca se inventa un "0 kg" (sección 13: nada de
-     kilos ficticios), se muestran directamente las reps. */
+  /* "Última referencia" (sección 15): carga y reps de las series
+     EFECTIVAS de la última ejecución, con el mismo criterio que usan las
+     recomendaciones (analizarSeriesPrincipales): las aproximaciones no se
+     muestran. Solo presentación: el historial guardado no cambia. Con peso
+     corporal nunca se inventa un "0 kg" (sección 13), se muestran las reps.
+     La carga conserva decimales (42,5 kg, no 43). */
   function formatearUltimaReferenciaEjercicio(datosUltimaEjecucion) {
-    var repsPorSerie = datosUltimaEjecucion.series.map(function (s) { return Number(s.reps) || 0; }).join("/");
-    if (datosUltimaEjecucion.pesoMaximo === 0) {
+    var principal = analizarSeriesPrincipales(datosUltimaEjecucion.series);
+    var reps = principal.sinDatos
+      ? datosUltimaEjecucion.series.map(function (s) { return Number(s.reps) || 0; })
+      : principal.repsPrincipales;
+    var repsPorSerie = reps.join("/");
+    if (principal.sinDatos || principal.pesoCorporal) {
       return repsPorSerie + " reps";
     }
-    return formatearKg(datosUltimaEjecucion.pesoMaximo) + " · " + repsPorSerie;
+    return principal.cargaPrincipal.toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " kg · " + repsPorSerie;
+  }
+
+  function renderTarjetaProximaSesion(rec, datosUltimaEjecucion) {
+    return (
+      '<div class="analisis-semana-actual proxima-sesion-tarjeta">' +
+      '<div class="analisis-stats">' +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Estado</span><span class="analisis-stat-valor">' + GYMAPP.util.escapeHtml(rec.estado) + "</span></div>" +
+      '<div class="analisis-stat"><span class="analisis-stat-label">Última referencia</span><span class="analisis-stat-valor">' + GYMAPP.util.escapeHtml(formatearUltimaReferenciaEjercicio(datosUltimaEjecucion)) + "</span></div>" +
+      "</div>" +
+      GYMAPP.proximaSesion.renderRecomendacion(rec, { etiqueta: "Recomendación para la próxima sesión" }) +
+      "</div>"
+    );
   }
 
   function renderTarjetaRecomendacionEjercicio(r, datosUltimaEjecucion) {
@@ -2950,6 +2981,7 @@ GYMAPP.progreso = (function () {
     parsearRangoReps: parsearRangoReps,
     obtenerEjercicioDeRutina: obtenerEjercicioDeRutina,
     calcularRecomendacionEjercicio: calcularRecomendacionEjercicio,
+    formatearUltimaReferenciaEjercicio: formatearUltimaReferenciaEjercicio,
     /* PROG-04: expuestas para pruebas unitarias del estado del plan. */
     analizarSeriesPrincipales: analizarSeriesPrincipales,
     compararEjecucionesPrincipales: compararEjecucionesPrincipales,

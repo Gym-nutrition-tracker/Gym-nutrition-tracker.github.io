@@ -93,8 +93,10 @@ function semilla() {
     await elegirDia(p, "EMPUJE");
 
     /* Sugerencias visibles y compactas. */
-    check("Smith (mismo ejercicio): 'Carga sugerida: 42,5 kg · Confianza alta'", /^Carga sugerida: 42,5 kg · Confianza alta$/.test(await textoEn(p, "PRESS INCLINADO EN SMITH", ".carga-sugerida-linea")), await textoEn(p, "PRESS INCLINADO EN SMITH", ".carga-sugerida-linea"));
-    check("Mancuernas: unidad 'por mancuerna'", /kg por mancuerna/.test(await textoEn(p, "PRESS BANCA C/MANCUERNAS", ".carga-sugerida-linea")));
+    /* PROG-04.1: con historial del mismo ejercicio se muestra "Próxima
+       sesión" y NO la carga sugerida de E6.5 (nunca las dos). */
+    check("Smith (mismo ejercicio): 'Próxima sesión' en vez de 'Carga sugerida'", /^Mantené 40 kg$/.test(await textoEn(p, "PRESS INCLINADO EN SMITH", ".proxima-sesion-ej-titulo")) && (await textoEn(p, "PRESS INCLINADO EN SMITH", ".carga-sugerida")) === null, await textoEn(p, "PRESS INCLINADO EN SMITH", ".proxima-sesion-ej"));
+    check("Mancuernas (mismo ejercicio): unidad 'por mancuerna'", /kg por mancuerna/.test(await textoEn(p, "PRESS BANCA C/MANCUERNAS", ".proxima-sesion-ej-titulo")));
     check("Militar arrodillado (variante): confianza media", /Confianza media/.test(await textoEn(p, "PRESS MILITAR ARRODILLADO CON MANCUERNAS", ".carga-sugerida-linea")));
     check("Cruces en polea: 'por lado' y confianza baja", /por lado · Confianza baja/.test(await textoEn(p, "CRUCES EN POLEA (ALTO)", ".carga-sugerida-linea")));
 
@@ -144,19 +146,20 @@ function semilla() {
     const pc = await abrir(390, conDominadasTotales(datos, 75));
     const antesPc = await pc.evaluate((k) => localStorage.getItem(k), CLAVE);
     await elegirDia(pc, "TRACCIÓN");
-    check("Dominadas: 'Lastre sugerido: +7,5 kg' como dato principal", /^Lastre sugerido: \+7,5 kg · Confianza alta$/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea")), await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea"));
-    check("Dominadas: 'Carga total estimada: 82,5 kg' secundaria", (await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-nota")) === "Carga total estimada: 82,5 kg");
+    /* Dominadas con historial propio → PROG-04.1 expresa el lastre (80 − 75). */
+    check("Dominadas: próxima sesión en lastre ('+5 kg de lastre')", /^Mantené \+5 kg de lastre$/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".proxima-sesion-ej-titulo")), await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".proxima-sesion-ej"));
+    check("Dominadas: sin 'Carga sugerida' de E6.5 en paralelo", (await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida")) === null);
     check("Dominadas: 'Última vez' con los kg originales (carga total)", /^Última vez: 75kg x10 · 80kg x8/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".ejercicio-ultimo-registro")));
     await (await tarjeta(pc, "DOMINADAS TOMA NEUTRA")).evaluate((c) => c.querySelector("summary").click());
-    check("Dominadas: '¿Por qué?' explica peso, carga total y lastre", /Tu peso corporal actual es 75 kg .*La carga total estimada para este objetivo es 82,5 kg\. Eso equivale aproximadamente a \+7,5 kg de lastre\./.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-detalle")));
+    check("Dominadas: '¿Por qué?' muestra la última sesión en lastre", /Última sesión: \+5 kg de lastre · 8\/8\/8/.test(await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-detalle")), await textoEn(pc, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-detalle"));
     check("Dominadas: no escribe datos", (await pc.evaluate((k) => localStorage.getItem(k), CLAVE)) === antesPc);
     await foto(pc, "05-dominadas-lastre", '.ejercicio-entrenar-card:has(strong:text-is("DOMINADAS TOMA NEUTRA"))');
     await pc.close();
     const sinPeso = await abrir(390, conDominadasTotales(datos, null));
     await elegirDia(sinPeso, "TRACCIÓN");
-    check("Sin peso corporal: carga total orientativa + pedido de registrar el peso",
-      /^Carga total orientativa: 82,5 kg/.test(await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-linea")) &&
-      (await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-nota")) === "Para calcular el lastre necesitás registrar tu peso corporal.");
+    check("Sin peso corporal: carga total + pedido de registrar el peso",
+      /^Mantené 80 kg de carga total$/.test(await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".proxima-sesion-ej-titulo")) &&
+      /Para calcular el lastre necesitás registrar tu peso corporal\./.test(await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".carga-sugerida-detalle")), await textoEn(sinPeso, "DOMINADAS TOMA NEUTRA", ".proxima-sesion-ej"));
     await foto(sinPeso, "06-dominadas-sin-peso", '.ejercicio-entrenar-card:has(strong:text-is("DOMINADAS TOMA NEUTRA"))');
     await sinPeso.close();
     const pc320 = await abrir(320, conDominadasTotales(datos, 75));
@@ -170,7 +173,7 @@ function semilla() {
     await elegirDia(q, "EMPUJE");
     await (await tarjeta(q, "PRESS INCLINADO EN SMITH")).evaluate((c) => c.querySelector("summary").click());
     check("320: sin scroll horizontal con el detalle abierto", await q.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-    check("320: la línea de carga entra en la tarjeta", await (await tarjeta(q, "PRESS INCLINADO EN SMITH")).evaluate((c) => { const l = c.querySelector(".carga-sugerida"); return l.getBoundingClientRect().right <= c.getBoundingClientRect().right + 0.5; }));
+    check("320: la línea de carga entra en la tarjeta", await (await tarjeta(q, "PRESS INCLINADO EN SMITH")).evaluate((c) => { const l = c.querySelector(".proxima-sesion-ej"); return l.getBoundingClientRect().right <= c.getBoundingClientRect().right + 0.5; }));
     await foto(q, "04-entrenar-320");
     await q.close();
   } catch (err) {

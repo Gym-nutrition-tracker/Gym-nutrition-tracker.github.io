@@ -222,7 +222,17 @@ GYMAPP.entrenamiento = (function () {
       var contexto = cargas.contextoPlan(GYMAPP.planes.planActivo(data));
       var hoy = GYMAPP.util.fechaLocalISO(new Date());
       var pesoCorporal = cargas.pesoCorporalActual(data);
-      sugerencias = function (ej) { return cargas.renderSugerencia(cargas.recomendar(indice, ej, { hoy: hoy, contexto: contexto, pesoCorporal: pesoCorporal })); };
+      var proxima = GYMAPP.proximaSesion;
+      var prog = GYMAPP.progreso;
+      var estadoPlan = proxima && prog ? prog.calcularEstadoPlan(prog.construirInputEstadoPlan(data, hoy)) : null;
+      /* PROG-04.1: ejercicio con historial propio → "Próxima sesión";
+         ejercicio nuevo → carga sugerida de E6.5. Nunca las dos. */
+      sugerencias = function (ej) {
+        var opciones = { hoy: hoy, contexto: contexto, pesoCorporal: pesoCorporal, estadoPlan: estadoPlan ? estadoPlan.estado : null };
+        var rec = proxima ? proxima.recomendar(data, ej, opciones) : null;
+        if (rec && rec.tipo === "accion") return proxima.renderRecomendacion(rec);
+        return cargas.renderSugerencia(cargas.recomendar(indice, ej, opciones));
+      };
     }
 
     html += '<div class="ejercicios-entrenar">' +
