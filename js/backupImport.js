@@ -57,7 +57,10 @@ GYMAPP.backupImport = (function () {
       if (GYMAPP.storage.validarVinculoSesion(s)) return false;
       if (s.ejercicios_realizados === undefined || s.ejercicios_realizados === null) return true;
       return Array.isArray(s.ejercicios_realizados) && s.ejercicios_realizados.every(function (er) {
-        return esObjeto(er) && (er.series === undefined || Array.isArray(er.series));
+        /* PROG-04.2: rir_real opcional; si viene, entero 0-4 (4 = "4+") o null. */
+        var rirValido = er && (er.rir_real === undefined || er.rir_real === null ||
+          (typeof er.rir_real === "number" && Math.floor(er.rir_real) === er.rir_real && er.rir_real >= 0 && er.rir_real <= 4));
+        return esObjeto(er) && (er.series === undefined || Array.isArray(er.series)) && rirValido;
       });
     });
     if (!sesionesValidas) return "Hay sesiones de entrenamiento con un formato inválido.";

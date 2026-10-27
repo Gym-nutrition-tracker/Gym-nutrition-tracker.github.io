@@ -68,6 +68,44 @@ GYMAPP.proximaSesion = (function () {
     return null;
   }
 
+  /* PROG-04.2: RIR objetivo como RANGO { min, max } (rir_min / rir_max),
+     sin aplastarlo a un número: "1-2" → 1..2, "2" → 2..2. Si el plan no da
+     RIR, desde el RPE objetivo DEL EJERCICIO (RIR = 10 - RPE: "7-8" → 2..3).
+     Nunca desde el RPE de la sesión. null si no hay objetivo. (E6.5 sigue
+     usando su propio punto medio para estimar cargas.) */
+  function rangoRirObjetivo(p) {
+    if (!p) return null;
+    var leer = function (v) {
+      if (v == null || v === "") return null;
+      if (typeof v === "number") return isFinite(v) ? { min: v, max: v } : null;
+      var m = /^\s*(\d+(?:[.,]\d+)?)\s*(?:-|–|a)?\s*(\d+(?:[.,]\d+)?)?\s*$/.exec(String(v));
+      if (!m) return null;
+      var x = parseFloat(m[1].replace(",", ".")), y = m[2] ? parseFloat(m[2].replace(",", ".")) : x;
+      return { min: Math.min(x, y), max: Math.max(x, y) };
+    };
+    var rir = leer(p.rir_objetivo);
+    if (rir) return rir;
+    var rpe = leer(p.rpe_objetivo);
+    return rpe ? { min: Math.max(0, 10 - rpe.max), max: Math.max(0, 10 - rpe.min) } : null;
+  }
+
+  /* RIR real frente al rango objetivo: "debajo" (más cerca del fallo de lo
+     previsto), "dentro" o "encima" (más margen del previsto). Sin objetivo:
+     solo RIR 0 cuenta como "debajo". 4 = "4+". */
+  function compararRirReal(real, rango) {
+    if (typeof real !== "number") return null;
+    if (!rango) return real === 0 ? "debajo" : "dentro";
+    if (real < rango.min) return "debajo";
+    if (real > rango.max) return "encima";
+    return "dentro";
+  }
+
+  function textoRangoRir(r) {
+    if (!r) return null;
+    var f = function (n) { return String(n).replace(".", ","); };
+    return r.min === r.max ? f(r.min) : f(r.min) + "-" + f(r.max);
+  }
+
   /* --- 1. Historial del MISMO ejercicio --- */
 
   /* Ejecuciones útiles (series principales con datos), de la más vieja a
@@ -100,6 +138,10 @@ GYMAPP.proximaSesion = (function () {
           fecha: String(s.fecha).slice(0, 10),
           principal: principal,
           rpeSesion: typeof s.rpe === "number" ? s.rpe : null,
+          /* PROG-04.2: RIR real de la última serie efectiva (0-4, 4 = "4+"),
+             si se registró. Señal de esfuerzo DEL EJERCICIO, distinta del
+             RPE global de la sesión. */
+          rirReal: typeof er.rir_real === "number" ? er.rir_real : null,
           prescripcion: resuelto && resuelto.prescripcion ? resuelto.prescripcion : null
         });
       });
@@ -185,7 +227,17 @@ GYMAPP.proximaSesion = (function () {
        tope dos veces). Intensidad alta: el tope ya cuesta; mismo criterio de
        confirmación para los objetivos fijos. */
     var pideConfirmacion = !conRango || (objetivo.min === objetivo.max) || (rirObj !== null && rirObj >= 3);
-    var base = { estadoPlan: contexto.estadoPlan || null, ultima: ultima, previa: previa, evU: evU, evP: evP, objetivo: objetivo, seriesObjetivo: seriesObjetivo, rirObj: rirObj, pausa: pausa, fatiga: fatiga };
+    /* PROG-04.2: RIR real de la última exposición frente al objetivo.
+       rirBajo: más cerca del fallo que lo planeado (sin objetivo: RIR 0).
+       rirOk: dentro de lo planeado o con más margen. rirMargen: al menos
+       una rep más en reserva que el objetivo. */
+    var rirU = ultima.rirReal;
+    var rangoRir = rangoRirObjetivo(ejercicio);
+    var posicionRir = compararRirReal(rirU, rangoRir);
+    var rirBajo = posicionRir === "debajo";
+    var rirOk = posicionRir === "dentro" || posicionRir === "encima";
+    var rirMargen = posicionRir === "encima";
+    var base = { rirU: rirU, rangoRir: rangoRir, posicionRir: posicionRir, estadoPlan: contexto.estadoPlan || null, ultima: ultima, previa: previa, evU: evU, evP: evP, objetivo: objetivo, seriesObjetivo: seriesObjetivo, rirObj: rirObj, pausa: pausa, fatiga: fatiga };
 
     function d(accion, motivo, extra) { return Object.assign({ accion: accion, motivo: motivo }, base, extra || {}); }
 
@@ -194,8 +246,18 @@ GYMAPP.proximaSesion = (function () {
     if (n === 1) {
       if (!conRango || ultima.principal.ambigua) return d("insuficiente", "pocos_datos");
       if (conRango && evU.debajo && evU.promedio < objetivo.min - 2) return d("bajar", "calibracion_debajo");
-      if (conRango && evU.tope) return d("consolidar", "calibracion_tope");
-      return d("mantener_reps", "calibracion");
+      if (conRango && evU.tope) {
+        /* Calibración: con una sola sesión, subir solo si el RIR real
+           muestra margen claro sobre el objetivo. */
+        /* Primera exposición (regla definitiva): por debajo del objetivo →
+           consolidar; dentro → mantener y confirmar una vez; claramente por
+           encima → subida chica. Sin RIR, como siempre. */
+        if (rirBajo) return d("consolidar", "tope_rir_bajo");
+        if (rirMargen && contexto.estadoPlan !== "descargar") return d("subir", "calibracion_tope_rir");
+        if (posicionRir === "dentro") return d("consolidar", "calibracion_tope_rir_dentro");
+        return d("consolidar", "calibracion_tope");
+      }
+      return d("mantener_reps", rirMargen ? "calibracion_margen" : "calibracion");
     }
 
     /* Caídas: una sola no alcanza; dos seguidas sí. */
@@ -218,6 +280,13 @@ GYMAPP.proximaSesion = (function () {
 
 
     if (conRango && evU.tope) {
+      /* PROG-04.2: con RIR real, el esfuerzo del ejercicio decide antes que
+         la confirmación por repetición y que el RPE global de la sesión. */
+      if (rirBajo) return d("consolidar", "tope_rir_bajo");
+      if (rirOk) {
+        if (contexto.estadoPlan === "descargar") return d("consolidar", "plan_descarga");
+        return d("subir", "tope_con_rir");
+      }
       var confirmado = !!(evP && evP.tope && mismaCarga(compU));
       if (pideConfirmacion && !confirmado) return d("consolidar", "tope_sin_confirmar");
       if (fatiga) return d("consolidar", "tope_con_fatiga");
@@ -229,7 +298,7 @@ GYMAPP.proximaSesion = (function () {
     if (n >= 3 && mismaCarga(compU) && mismaCarga(compP) &&
         !compU.esMejora && !compP.esMejora) return d("consolidar", "estancado");
 
-    return d("mantener_reps", conRango ? "en_rango" : "sin_rango");
+    return d("mantener_reps", conRango ? (rirMargen ? "en_rango_margen" : "en_rango") : "sin_rango");
   }
 
   /* --- 3. Carga siguiente --- */
@@ -291,6 +360,8 @@ GYMAPP.proximaSesion = (function () {
     return objetivo.min + "-" + objetivo.max + " reps" + lado;
   }
 
+  function textoRirReal(v) { return v >= 4 ? "4+" : String(v); }
+
   function repsDe(e) { return e.principal.repsPrincipales.join("/"); }
 
   function explicarRecomendacion(decision, carga, clasif, peso, confianza) {
@@ -300,6 +371,12 @@ GYMAPP.proximaSesion = (function () {
     var tope = obj && obj.max != null ? obj.max : null;
     var lineas = [];
     var M = {
+      calibracion_margen: "Es tu primera sesión registrada de este ejercicio y te quedaban " + textoRirReal(decision.rirU) + " reps en reserva: buscá más reps con esta carga antes de subir.",
+      calibracion_tope_rir: "Primera sesión registrada: llegaste al tope del rango con más margen del previsto (RIR " + textoRirReal(decision.rirU) + ", objetivo " + textoRangoRir(decision.rangoRir) + "). Subí con un salto chico y confirmalo en la próxima.",
+      calibracion_tope_rir_dentro: "Primera sesión registrada: llegaste al tope del rango con el esfuerzo previsto (RIR " + textoRirReal(decision.rirU) + ", objetivo " + textoRangoRir(decision.rangoRir) + "). Confirmalo una vez más con la misma carga antes de subir.",
+      tope_rir_bajo: "Completaste el máximo de reps, pero con RIR " + textoRirReal(decision.rirU) + (decision.rangoRir ? " (objetivo " + textoRangoRir(decision.rangoRir) + ")" : "") + "; conviene consolidar antes de subir.",
+      tope_con_rir: "Completaste el extremo superior del rango con " + cargaUlt + " y te quedaban " + textoRirReal(decision.rirU) + " reps en reserva" + (decision.rangoRir ? " (objetivo " + textoRangoRir(decision.rangoRir) + ")" : "") + ": podés subir.",
+      en_rango_margen: "Te quedaban " + textoRirReal(decision.rirU) + " reps en reserva (objetivo " + textoRangoRir(decision.rangoRir) + "): hay margen para sumar reps con esta carga.",
       calibracion: "Es tu primera sesión registrada de este ejercicio: sirve para calibrar. Repetí la carga y buscá más reps antes de subir.",
       calibracion_tope: "Llegaste al tope del rango en tu primera sesión registrada. Confirmalo una vez más antes de subir.",
       calibracion_debajo: "En tu primera sesión registrada quedaste bastante por debajo del rango: una carga algo menor te deja trabajar dentro del objetivo.",
@@ -325,11 +402,17 @@ GYMAPP.proximaSesion = (function () {
     lineas.push("Última sesión: " + cargaUlt + " · " + repsDe(u) + (u.principal.seriesSecundarias ? " (sin contar " + u.principal.seriesSecundarias + " de aproximación)" : "") + ".");
     if (decision.previa) lineas.push("Anterior: " + (decision.previa.principal.cargaPrincipal > 0 ? textoCarga(decision.previa.principal.cargaPrincipal, clasif, peso) : "peso corporal") + " · " + repsDe(decision.previa) + ".");
     if (decision.accion === "subir" && !carga.pasoObservado && carga.actual > 0) lineas.push("El salto es aproximado: usá el incremento más chico disponible en tu gimnasio.");
-    if (decision.rirObj !== null && decision.rirObj !== undefined) lineas.push("Objetivo del plan: dejar " + formatearKg(decision.rirObj) + (decision.rirObj === 1 ? " rep" : " reps") + " en reserva.");
+    if (decision.rirU !== null && decision.rirU !== undefined) {
+      lineas.push("Último RIR registrado: " + textoRirReal(decision.rirU) + "." + (decision.rangoRir ? " Objetivo del plan: " + textoRangoRir(decision.rangoRir) + "." : ""));
+    } else if (decision.rangoRir) {
+      lineas.push("Objetivo del plan: dejar " + textoRangoRir(decision.rangoRir) + (decision.rangoRir.max === 1 ? " rep" : " reps") + " en reserva.");
+    }
     if (decision.accion === "subir" && decision.estadoPlan === "consolidar") lineas.push("El estado general del plan es Consolidar: con la carga nueva arrancá por el extremo bajo del rango.");
     if (clasif.corporal && !(peso && peso.kg > 0) && u.principal.cargaPrincipal > 0) lineas.push("Para calcular el lastre necesitás registrar tu peso corporal.");
     if (confianza === "baja") lineas.push("Confianza baja: hay pocas sesiones o datos incompletos.");
-    lineas.push("No registramos el esfuerzo real por ejercicio: la recomendación se basa en carga, reps y el rango del plan.");
+    if (decision.rirU === null || decision.rirU === undefined) {
+      lineas.push("No registramos el esfuerzo real por ejercicio: la recomendación se basa en carga, reps y el rango del plan.");
+    }
     return lineas.filter(Boolean);
   }
 
@@ -357,6 +440,12 @@ GYMAPP.proximaSesion = (function () {
     var objetivo = decision.objetivo;
     var datosIncompletos = !objetivo || objetivo.min == null || decision.ultima.principal.ambigua;
     var confianza = n === 1 || datosIncompletos ? "baja" : (recientes >= 3 && decision.pausa <= DIAS_PAUSA_LARGA ? "alta" : "media");
+    /* PROG-04.2: con RIR real en la última exposición, un nivel más (con
+       una sola sesión, como mucho media). Sin RIR, como siempre. */
+    if (typeof decision.rirU === "number" && decision.accion !== "insuficiente" && !datosIncompletos) {
+      if (confianza === "baja") confianza = "media";
+      else if (confianza === "media" && n >= 2) confianza = "alta";
+    }
 
     var peso = clasif.corporal ? opciones.pesoCorporal || null : null;
     var cargaTexto = textoCarga(carga.kg, clasif, peso);
@@ -378,7 +467,10 @@ GYMAPP.proximaSesion = (function () {
         decision.accion === "subir" ? "Peso corporal: sumá un lastre chico" : "Peso corporal";
     }
     var objetivoTexto;
-    if (decision.accion === "mantener_reps" && objetivo && objetivo.max != null && objetivo.min !== objetivo.max) {
+    if (decision.accion === "mantener_reps" && objetivo && objetivo.max != null && objetivo.min !== objetivo.max &&
+        (decision.motivo === "en_rango_margen" || decision.motivo === "calibracion_margen")) {
+      objetivoTexto = "Buscá " + objetivo.max + " reps" + (objetivo.porLado ? " por lado" : "");
+    } else if (decision.accion === "mantener_reps" && objetivo && objetivo.max != null && objetivo.min !== objetivo.max) {
       var desde = Math.min(objetivo.max, Math.max(objetivo.min, Math.floor(decision.evU.promedio) + 1));
       objetivoTexto = "Buscá " + (desde >= objetivo.max ? objetivo.max : desde + "-" + objetivo.max) + " reps" + (objetivo.porLado ? " por lado" : "");
     } else if (decision.accion === "bajar") {
@@ -431,6 +523,8 @@ GYMAPP.proximaSesion = (function () {
 
   return {
     parsearObjetivo: parsearObjetivo,
+    rangoRirObjetivo: rangoRirObjetivo,
+    compararRirReal: compararRirReal,
     analizarHistorialEjercicio: analizarHistorialEjercicio,
     evaluarEjecucion: evaluarEjecucion,
     decidirAccion: decidirAccion,

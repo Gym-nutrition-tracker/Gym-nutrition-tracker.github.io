@@ -29,7 +29,7 @@ function armar(ejercicios, opciones) {
       sesiones.push({
         id: "s-" + i + "-" + k, fecha: fecha + "T18:00:00", tipo: "gimnasio", dia_rutina_id: plan.dias[0].id, plan_id: plan.plan_id,
         duracion_min: 60, rpe: r.rpe == null ? 7 : r.rpe, notas: "", futbol_detalle: null,
-        ejercicios_realizados: [{ ejercicio_id: ej.id, series: r.series }]
+        ejercicios_realizados: [Object.assign({ ejercicio_id: ej.id, series: r.series }, r.rir == null ? {} : { rir_real: r.rir })]
       });
     });
   });

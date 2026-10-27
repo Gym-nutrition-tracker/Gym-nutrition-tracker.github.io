@@ -129,7 +129,11 @@ GYMAPP.rutinasHistoricas = (function () {
       var mejor = null;
       sesiones.forEach(function (s) {
         var er = s.ejercicios_realizados.filter(function (e) { return coincide(s, e); })[0];
-        if (er && (!mejor || new Date(s.fecha) > new Date(mejor.fecha))) mejor = { fecha: s.fecha, series: er.series };
+        if (er && (!mejor || new Date(s.fecha) > new Date(mejor.fecha))) {
+          mejor = { fecha: s.fecha, series: er.series };
+          /* PROG-04.2: RIR real de esa ejecución, si se registró. */
+          if (typeof er.rir_real === "number") mejor.rir_real = er.rir_real;
+        }
       });
       return mejor;
     };

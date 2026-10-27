@@ -24,6 +24,9 @@ GYMAPP.entrenamiento = (function () {
       tipo: "gimnasio",
       diaRutinaId: "",
       seriesPorEjercicio: {},
+      /* PROG-04.2: RIR real de la última serie efectiva, por ejercicio
+         (0, 1, 2, 3 o 4 = "4+"). Opcional: sin valor, no se guarda. */
+      rirPorEjercicio: {},
       /* Solo se usa editando una sesión de gimnasio: instantánea de qué
          ejercicios tenía ESA sesión (id + etiqueta para mostrar), resuelta
          una vez al entrar en edición. Nunca se vuelve a mirar la rutina
@@ -217,6 +220,11 @@ GYMAPP.entrenamiento = (function () {
        índice del historial se arma una sola vez por día elegido. */
     var cargas = GYMAPP.recomendacionCarga;
     var sugerencias = null;
+    /* PROG-04.2: el RIR real solo tiene sentido en ejercicios de fuerza;
+       movilidad, activación e isométricos por tiempo (clasificación de
+       E6.5) no lo muestran. */
+    var contextoRir = cargas ? cargas.contextoPlan(GYMAPP.planes.planActivo(data)) : null;
+    var admiteRir = function (ej) { return admiteRirReal(ej, contextoRir); };
     if (cargas) {
       var indice = cargas.construirIndiceHistorial(data);
       var contexto = cargas.contextoPlan(GYMAPP.planes.planActivo(data));
@@ -236,13 +244,13 @@ GYMAPP.entrenamiento = (function () {
     }
 
     html += '<div class="ejercicios-entrenar">' +
-      dia.ejercicios.map(function (ej) { return renderEjercicioEntrenar(data, ej, sugerencias); }).join("") +
+      dia.ejercicios.map(function (ej) { return renderEjercicioEntrenar(data, ej, sugerencias, admiteRir(ej)); }).join("") +
       "</div>";
 
     return html;
   }
 
-  function renderEjercicioEntrenar(data, ejercicio, sugerencias) {
+  function renderEjercicioEntrenar(data, ejercicio, sugerencias, conRir) {
     /* E6.5: mismo id, o el mismo ejercicio por nombre en otro plan. */
     var ultimo = GYMAPP.rutinasHistoricas.buscarUltimaEjecucion(data, ejercicio);
     var series = estado.seriesPorEjercicio[ejercicio.id] || [];
@@ -254,13 +262,14 @@ GYMAPP.entrenamiento = (function () {
       '<span class="ejercicio-objetivo">' + ejercicio.series_objetivo + " × " + GYMAPP.util.escapeHtml(ejercicio.reps_objetivo) + "</span>" +
       "</div>" +
       '<div class="ejercicio-ultimo-registro">' +
-      (ultimo ? "Última vez: " + GYMAPP.util.escapeHtml(formatearSeries(ultimo.series)) : "Sin registros previos") +
+      (ultimo ? "Última vez: " + GYMAPP.util.escapeHtml(formatearSeries(ultimo.series) + (typeof ultimo.rir_real === "number" ? " · RIR " + textoRir(ultimo.rir_real) : "")) : "Sin registros previos") +
       "</div>" +
       (sugerencias ? sugerencias(ejercicio) : "") +
       '<div class="series-lista">' +
       series.map(function (s, i) { return renderSerieInput(ejercicio.id, i, s); }).join("") +
       "</div>" +
       '<button type="button" data-accion="agregar-serie" data-ejercicio-id="' + ejercicio.id + '" class="btn-agregar-serie">+ Serie</button>' +
+      (conRir ? renderSelectorRir(ejercicio.id) : "") +
       "</div>"
     );
   }
@@ -300,7 +309,39 @@ GYMAPP.entrenamiento = (function () {
       series.map(function (s, i) { return renderSerieInput(ejercicioHistorico.ejercicio_id, i, s); }).join("") +
       "</div>" +
       '<button type="button" data-accion="agregar-serie" data-ejercicio-id="' + ejercicioHistorico.ejercicio_id + '" class="btn-agregar-serie">+ Serie</button>' +
+      (ejercicioHistorico.admiteRir ? renderSelectorRir(ejercicioHistorico.ejercicio_id) : "") +
       "</div>"
+    );
+  }
+
+  /* --- PROG-04.2: RIR real de la última serie efectiva --- */
+
+  var RIR_VALORES = [0, 1, 2, 3, 4];
+
+  function textoRir(v) {
+    return v >= 4 ? "4+" : String(v);
+  }
+
+  function admiteRirReal(ejercicio, contexto) {
+    var cargas = GYMAPP.recomendacionCarga;
+    if (!cargas || !ejercicio) return true;
+    var c = cargas.clasificarEjercicio(ejercicio, contexto);
+    return c.tipo !== "movilidad" && !c.tiempo;
+  }
+
+  /* Botones grandes, una sola fila; tocar el elegido lo desmarca. */
+  function renderSelectorRir(ejercicioId) {
+    var actual = estado.rirPorEjercicio[ejercicioId];
+    return (
+      '<div class="rir-real" data-ejercicio-id="' + ejercicioId + '">' +
+      '<span class="rir-real-label">RIR última serie <span class="rir-real-opcional">· opcional</span></span>' +
+      '<div class="rir-selector" role="group" aria-label="Reps en reserva de la última serie">' +
+      RIR_VALORES.map(function (v) {
+        var activo = actual === v;
+        return '<button type="button" data-accion="set-rir" data-ejercicio-id="' + ejercicioId + '" data-valor="' + v + '" class="btn-rir' +
+          (activo ? " activo" : "") + '" aria-pressed="' + activo + '">' + textoRir(v) + "</button>";
+      }).join("") +
+      "</div></div>"
     );
   }
 
@@ -493,6 +534,7 @@ GYMAPP.entrenamiento = (function () {
      guardado. */
   function cargarParaEditar(sesion, data) {
     var seriesPorEjercicio = {};
+    var rirPorEjercicio = {};
     var ejerciciosHistoricos = [];
 
     if (sesion.tipo === "gimnasio") {
@@ -504,7 +546,12 @@ GYMAPP.entrenamiento = (function () {
            sesión; si no tiene, la resolución de siempre). Sin datos: el
            texto de siempre. */
         var resuelto = GYMAPP.rutinasHistoricas.resolverEjercicioDeSesion(data, sesion, er);
+        var rirGuardado = typeof er.rir_real === "number" ? er.rir_real : null;
+        rirPorEjercicio[er.ejercicio_id] = rirGuardado;
         ejerciciosHistoricos.push({
+          /* PROG-04.2: selector de RIR si el ejercicio es de fuerza (o si
+             ya tenía un RIR guardado). */
+          admiteRir: rirGuardado !== null || (resuelto ? admiteRirReal(Object.assign({ nombre: resuelto.nombre }, resuelto.prescripcion || {}), null) : false),
           ejercicio_id: er.ejercicio_id,
           etiqueta: resuelto ? resuelto.nombre : "Ejercicio eliminado de la rutina",
           objetivo: resuelto && resuelto.prescripcion ? (resuelto.prescripcion.series_objetivo + " × " + resuelto.prescripcion.reps_objetivo) : ""
@@ -526,6 +573,7 @@ GYMAPP.entrenamiento = (function () {
       /* Solo informativo (el día de una sesión histórica no se edita). */
       nombreDiaHistorico: sesion.dia_rutina_id ? GYMAPP.rutinasHistoricas.resolverNombreDiaDeSesion(data, sesion) : null,
       seriesPorEjercicio: seriesPorEjercicio,
+      rirPorEjercicio: rirPorEjercicio,
       ejerciciosHistoricos: ejerciciosHistoricos,
       duracion_min: sesion.duracion_min != null ? String(sesion.duracion_min) : "",
       rpe: sesion.rpe || null,
@@ -593,6 +641,11 @@ GYMAPP.entrenamiento = (function () {
         render(container);
       } else if (accion === "set-rpe") {
         estado.rpe = parseInt(boton.dataset.valor, 10);
+        render(container);
+      } else if (accion === "set-rir") {
+        var idRir = boton.dataset.ejercicioId;
+        var valorRir = parseInt(boton.dataset.valor, 10);
+        estado.rirPorEjercicio[idRir] = estado.rirPorEjercicio[idRir] === valorRir ? null : valorRir;
         render(container);
       } else if (accion === "agregar-serie") {
         var lista = estado.seriesPorEjercicio[boton.dataset.ejercicioId] || [];
@@ -880,6 +933,14 @@ GYMAPP.entrenamiento = (function () {
     return { peso_kg: peso, reps: parseInt(s.reps, 10) || 0 };
   }
 
+  /* PROG-04.2: rir_real solo si se eligió (número 0-4); sin valor, el
+     ejercicio queda exactamente como antes (sin la clave). */
+  function conRirReal(er) {
+    var rir = estado.rirPorEjercicio ? estado.rirPorEjercicio[er.ejercicio_id] : null;
+    if (typeof rir === "number" && RIR_VALORES.indexOf(rir) !== -1) er.rir_real = rir;
+    return er;
+  }
+
   function construirEjerciciosRealizados(dia) {
     var resultado = [];
     dia.ejercicios.forEach(function (ej) {
@@ -887,7 +948,7 @@ GYMAPP.entrenamiento = (function () {
         .filter(function (s) { return s.peso_kg !== "" || s.reps !== ""; })
         .map(convertirSerie);
       if (seriesValidas.length) {
-        resultado.push({ ejercicio_id: ej.id, series: seriesValidas });
+        resultado.push(conRirReal({ ejercicio_id: ej.id, series: seriesValidas }));
       }
     });
     return resultado;
@@ -904,7 +965,7 @@ GYMAPP.entrenamiento = (function () {
         .filter(function (s) { return s.peso_kg !== "" || s.reps !== ""; })
         .map(convertirSerie);
       if (seriesValidas.length) {
-        resultado.push({ ejercicio_id: eh.ejercicio_id, series: seriesValidas });
+        resultado.push(conRirReal({ ejercicio_id: eh.ejercicio_id, series: seriesValidas }));
       }
     });
     return resultado;

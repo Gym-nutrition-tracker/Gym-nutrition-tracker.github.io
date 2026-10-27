@@ -723,6 +723,47 @@ body {
   transition: background-color var(--transicion-rapida), border-color var(--transicion-rapida), color var(--transicion-rapida);
 }
 
+/* PROG-04.2: RIR real de la última serie (por ejercicio, opcional). */
+.rir-real {
+  margin-top: 10px;
+}
+
+.rir-real-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  color: var(--color-texto-secundario);
+}
+
+.rir-real-opcional {
+  color: var(--color-texto-secundario);
+  opacity: 0.8;
+}
+
+.rir-selector {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.btn-rir {
+  min-height: 40px;
+  padding: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--color-borde);
+  background: var(--color-superficie);
+  color: var(--color-texto-secundario);
+  font-size: 0.93rem;
+  cursor: pointer;
+}
+
+.btn-rir.activo {
+  background: var(--color-primario);
+  border-color: var(--color-primario);
+  color: var(--color-primario-contraste);
+  font-weight: 700;
+}
+
 .btn-rpe.activo {
   background: var(--color-primario);
   border-color: var(--color-primario);
