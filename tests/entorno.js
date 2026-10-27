@@ -182,6 +182,39 @@ function crearEntorno(opciones) {
   /* respuestaOAuth: función opcional que reemplaza la respuesta de
      signInWithOAuth (por ejemplo, para simular un error). */
   const auth = { sesion: null, eventos: null, llamadas: [], respuestaOAuth: null };
+
+  /* PROFILE-01: Storage falso con la MISMA regla que las políticas de
+     supabase/storage-avatars.sql: solo el bucket "avatars" y solo la ruta
+     "<uid de la sesión>/avatar". Registra cada llamada. */
+  const almacen = { objetos: {}, llamadas: [], firmas: 0, error: null };
+  const permitido = (bucket, ruta) => bucket === "avatars" && auth.sesion && ruta === auth.sesion.user.id + "/avatar";
+  const rls = { message: "new row violates row-level security policy" };
+  nube.cliente.storage = {
+    from(bucket) {
+      return {
+        upload(ruta, archivo, opciones) {
+          almacen.llamadas.push(["upload", bucket, ruta, clonar(opciones)]);
+          if (almacen.error) return Promise.resolve({ data: null, error: almacen.error });
+          if (!permitido(bucket, ruta)) return Promise.resolve({ data: null, error: rls });
+          if (almacen.objetos[ruta] && !(opciones && opciones.upsert)) return Promise.resolve({ data: null, error: { message: "The resource already exists" } });
+          almacen.objetos[ruta] = { archivo, tipo: opciones && opciones.contentType };
+          return Promise.resolve({ data: { path: ruta }, error: null });
+        },
+        createSignedUrl(ruta, segundos) {
+          almacen.llamadas.push(["createSignedUrl", bucket, ruta, segundos]);
+          if (!permitido(bucket, ruta) || !almacen.objetos[ruta]) return Promise.resolve({ data: null, error: { message: "Object not found" } });
+          return Promise.resolve({ data: { signedUrl: "https://fake.supabase.co/storage/v1/object/sign/" + bucket + "/" + ruta + "?token=t" + (++almacen.firmas) }, error: null });
+        },
+        remove(rutas) {
+          almacen.llamadas.push(["remove", bucket, clonar(rutas)]);
+          if (almacen.error) return Promise.resolve({ data: null, error: almacen.error });
+          const propias = rutas.filter((r) => permitido(bucket, r) && almacen.objetos[r]);
+          propias.forEach((r) => { delete almacen.objetos[r]; });
+          return Promise.resolve({ data: propias.map((name) => ({ name })), error: null });
+        }
+      };
+    }
+  };
   if (opciones.authReal) {
     /* SDK de Supabase falso: el cliente de datos es el de la nube falsa,
        más un objeto auth que registra llamadas. */
@@ -211,7 +244,7 @@ function crearEntorno(opciones) {
   (opciones.modulos || []).forEach(cargar);
 
   return {
-    ctx, GYMAPP: ctx.GYMAPP, localStorage, nube, registro, respuestas, auth, cargar,
+    ctx, GYMAPP: ctx.GYMAPP, localStorage, nube, registro, respuestas, auth, almacen, cargar,
     login(id, email) { auth.sesion = { user: { id: id || "uid-A", email: email || "a@test.com" } }; },
     logout() { auth.sesion = null; },
     leer(k) { const v = localStorage.getItem(k); return v == null ? null : JSON.parse(v); },

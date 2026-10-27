@@ -12,6 +12,8 @@ GYMAPP.rutina = (function () {
       bindEventos(container);
       container.dataset.rutinaBound = "1";
     }
+    /* PROFILE-01: completa la foto de Cuenta cuando llega su URL. */
+    if (GYMAPP.perfilFoto) GYMAPP.perfilFoto.hidratar(container);
     /* E6: una revisión de PDF en curso sobrevive a un re-render. */
     if (importacion) abrirModal(container, renderRevisionPlan(data, importacion.borrador));
   }
@@ -449,6 +451,8 @@ GYMAPP.rutina = (function () {
     if (GYMAPP.sync) {
       GYMAPP.sync.bindEventosSincronizacion(container);
     }
+
+    if (GYMAPP.perfilFoto) GYMAPP.perfilFoto.bindEventos(container);
   }
 
   var MENSAJE_ERROR_GUARDADO = "No se pudo guardar el cambio. Revisá el espacio disponible en tu dispositivo e intentá de nuevo.";

@@ -296,6 +296,8 @@ GYMAPP.auth = (function () {
       '<div class="seccion-cuenta">' +
       "<h3>Cuenta</h3>" +
       '<div id="cuenta-mensaje" class="mensaje oculto"></div>' +
+      /* PROFILE-01: foto de perfil opcional (js/perfilFoto.js). */
+      (GYMAPP.perfilFoto ? GYMAPP.perfilFoto.renderBloqueCuenta(sesionActual, null) : "") +
       '<p class="nota">Conectado como ' + GYMAPP.util.escapeHtml(email) + "</p>" +
       '<button type="button" data-accion="cerrar-sesion-cuenta" class="btn btn-secundario btn-ancho">Cerrar sesión</button>' +
       "</div>"

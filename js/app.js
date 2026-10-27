@@ -178,6 +178,10 @@ GYMAPP.app = (function () {
 
     renderTab(tabActual, data);
 
+    /* PROFILE-01: el avatar del encabezado lo maneja perfilFoto (también
+       cuando después cambia la sesión o la foto). */
+    if (GYMAPP.perfilFoto) GYMAPP.perfilFoto.actualizarEncabezado();
+
     /* ONB-03: guía de inicio automática solo para quien parece nuevo. */
     if (GYMAPP.primerUso) GYMAPP.primerUso.mostrarGuiaSiCorresponde(GYMAPP.storage.getData());
   }
