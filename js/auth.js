@@ -30,7 +30,7 @@ GYMAPP.auth = (function () {
      publicada en GitHub Pages). Nunca se toma de la URL actual ni de
      parámetros: así no hay open redirect posible. Tiene que estar en
      Supabase -> Authentication -> URL Configuration -> Redirect URLs. */
-  var URL_APP = "https://nico6896.github.io/Agente-AI-de-prueba/";
+  var URL_APP = "https://gym-nutrition-tracker.github.io/";
 
   /* AUTH-04: la sesión de Supabase se guarda bajo STORAGE_KEY_AUTH igual
      que antes, pero sin provider_token ni provider_refresh_token (los
@@ -242,7 +242,7 @@ GYMAPP.auth = (function () {
      de que el usuario hace click en el enlace de recuperación del mail. Tiene
      que estar dada de alta en Supabase (Authentication -> URL Configuration
      -> Redirect URLs); nunca puede ser localhost. */
-  var URL_REDIRECT_RECUPERACION = "https://nico6896.github.io/Agente-AI-de-prueba/";
+  var URL_REDIRECT_RECUPERACION = "https://gym-nutrition-tracker.github.io/";
 
   /* Pide el mail de recuperación. No revela si el email existe o no más allá
      de lo que Supabase mismo devuelva: siempre se trata como éxito salvo un

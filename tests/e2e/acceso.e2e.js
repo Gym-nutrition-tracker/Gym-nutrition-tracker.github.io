@@ -16,7 +16,7 @@ const AHORA = "2026-11-09T12:00:00";
 const CLAVE = "gymNutritionTracker";
 const CLAVE_AUTH = "gymNutritionTracker_supabaseAuth";
 const META = "gymNutritionTracker_syncMeta";
-const URL_APP = "https://nico6896.github.io/Agente-AI-de-prueba/";
+const URL_APP = "https://gym-nutrition-tracker.github.io/";
 const TIPOS = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".woff2": "font/woff2" };
 const CAPTURAS = process.env.CAPTURAS_DIR || null;
 

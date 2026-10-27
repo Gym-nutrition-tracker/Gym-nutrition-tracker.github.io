@@ -14,7 +14,7 @@ const { crearEntorno, esperar, clonar, datosEjemplo } = require("./entorno");
 const RAIZ = path.join(__dirname, "..");
 const CLAVE = "gymNutritionTracker";
 const CLAVE_AUTH = "gymNutritionTracker_supabaseAuth";
-const URL_APP = "https://nico6896.github.io/Agente-AI-de-prueba/";
+const URL_APP = "https://gym-nutrition-tracker.github.io/";
 
 const entorno = () => crearEntorno({ authReal: true });
 
@@ -115,7 +115,29 @@ test("11. obtenerRedirectOAuth: siempre la URL publicada, nunca derivada de la U
   const e = entorno();
   e.ctx.location.href = "https://atacante.example/?redirect=https://otro.example";
   assert.equal(e.GYMAPP.auth.obtenerRedirectOAuth(), URL_APP);
-  assert.equal(e.GYMAPP.auth.obtenerRedirectOAuth(), "https://nico6896.github.io/Agente-AI-de-prueba/");
+  assert.equal(e.GYMAPP.auth.obtenerRedirectOAuth(), "https://gym-nutrition-tracker.github.io/");
+});
+
+test("URL de retorno: OAuth y recuperación usan https://gym-nutrition-tracker.github.io/; nada del sitio viejo", async () => {
+  const e = entorno();
+  const cliente = e.GYMAPP.auth.obtenerCliente();
+  const resets = [];
+  cliente.auth.resetPasswordForEmail = (email, opciones) => { resets.push([email, opciones]); return Promise.resolve({ data: {}, error: null }); };
+  const mensaje = { textContent: "", className: "mensaje oculto" };
+  const boton = { disabled: false, dataset: { accion: "enviar-recuperacion" } };
+  const c = {
+    handler: null,
+    addEventListener(tipo, fn) { if (tipo === "click") c.handler = fn; },
+    querySelector: (sel) => (sel === "#cuenta-mensaje" ? mensaje : sel === "#input-email-cuenta" ? { value: "a@test.com" } : null)
+  };
+  e.GYMAPP.auth.bindEventosCuenta(c, () => {});
+  c.handler({ target: { closest: () => boton } });
+  await esperar();
+  assert.deepEqual(clonar(resets), [["a@test.com", { redirectTo: "https://gym-nutrition-tracker.github.io/" }]]);
+  assert.equal(e.GYMAPP.auth.obtenerRedirectOAuth(), "https://gym-nutrition-tracker.github.io/");
+  const src = fs.readFileSync(path.join(RAIZ, "js/auth.js"), "utf8");
+  assert.doesNotMatch(src, /nico6896|Agente-AI-de-prueba/);
+  assert.match(src, /var SUPABASE_URL = "https:\/\/gegzdzpqzbmjldapsesg\.supabase\.co";/, "Supabase URL sin cambios");
 });
 
 test("12. doble click bloqueado: 'Abriendo Google…' y una sola llamada", async () => {
