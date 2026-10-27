@@ -383,8 +383,10 @@ GYMAPP.dashboard = (function () {
       resumenPeso +
       grafico +
       '<div class="registro-peso-rapido">' +
-      '<input type="number" id="input-peso-hoy" inputmode="decimal" step="0.1" min="20" placeholder="Peso de hoy (kg)" />' +
-      '<input type="number" id="input-cintura-hoy" inputmode="decimal" step="0.5" min="30" placeholder="Cintura (cm, opcional)" />' +
+      /* Texto con teclado decimal: acepta "75,5" y "75.5" (type="number"
+         pierde la coma). Se convierte con util.parsearDecimal. */
+      '<input type="text" id="input-peso-hoy" inputmode="decimal" autocomplete="off" placeholder="Peso de hoy (kg)" />' +
+      '<input type="text" id="input-cintura-hoy" inputmode="decimal" autocomplete="off" placeholder="Cintura (cm, opcional)" />' +
       '<button type="button" data-accion="guardar-peso" class="btn btn-secundario btn-ancho">Guardar medida</button>' +
       "</div>" +
       "</div>"
@@ -478,14 +480,14 @@ GYMAPP.dashboard = (function () {
   function guardarPeso(container) {
     var pesoInput = container.querySelector("#input-peso-hoy");
     var cinturaInput = container.querySelector("#input-cintura-hoy");
-    var peso = parseFloat(pesoInput.value);
+    var peso = GYMAPP.util.parsearDecimal(pesoInput.value);
 
     if (isNaN(peso) || peso <= 0) {
       mostrarMensaje(container, "Ingresá un peso válido.", "error");
       return;
     }
 
-    var cintura = parseFloat(cinturaInput.value);
+    var cintura = GYMAPP.util.parsearDecimal(cinturaInput.value);
     var fecha = fechaISO(new Date());
 
     var resultado = GYMAPP.storage.updateData(function (data) {

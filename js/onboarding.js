@@ -36,7 +36,7 @@ GYMAPP.onboarding = (function () {
       ) +
       seccionOnboarding(
         "Medidas",
-        campoTexto("peso_kg", "Peso (kg)", "number", true, { step: "0.1", min: "20", max: "300", inputmode: "decimal" }) +
+        campoTexto("peso_kg", "Peso (kg)", "text", true, { inputmode: "decimal", autocomplete: "off" }) +
           campoTexto("altura_cm", "Altura (cm)", "number", true, { step: "1", min: "100", max: "250", inputmode: "numeric" })
       ) +
       seccionOnboarding(
@@ -332,7 +332,7 @@ GYMAPP.onboarding = (function () {
       nombre: nombreValidado,
       sexo: fd.get("sexo"),
       objetivo: fd.get("objetivo"),
-      peso_kg: parseFloat(fd.get("peso_kg")),
+      peso_kg: GYMAPP.util.parsearDecimal(fd.get("peso_kg")),
       altura_cm: parseFloat(fd.get("altura_cm")),
       fecha_nacimiento: fechaValidada,
       nivel_actividad: fd.get("nivel_actividad")

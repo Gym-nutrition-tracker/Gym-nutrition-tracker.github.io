@@ -312,7 +312,9 @@ GYMAPP.entrenamiento = (function () {
     return (
       '<div class="serie-input-row" data-ejercicio-id="' + ejercicioId + '" data-serie-indice="' + indice + '">' +
       '<span class="serie-numero">' + (indice + 1) + "</span>" +
-      '<input type="number" inputmode="decimal" class="input-serie-peso" data-campo="peso_kg" placeholder="kg" min="0" step="0.5" value="' + serie.peso_kg + '" />' +
+      /* Peso: texto con teclado decimal (acepta "42,5" y "42.5"); se
+         convierte a número al guardar con util.parsearDecimal. */
+      '<input type="text" inputmode="decimal" autocomplete="off" class="input-serie-peso" data-campo="peso_kg" placeholder="kg" value="' + String(serie.peso_kg).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") + '" />' +
       '<span class="serie-x">×</span>' +
       '<input type="number" inputmode="numeric" class="input-serie-reps" data-campo="reps" placeholder="reps" min="0" step="1" value="' + serie.reps + '" />' +
       '<button type="button" data-accion="borrar-serie" data-ejercicio-id="' + ejercicioId + '" data-serie-indice="' + indice + '" class="btn-icono btn-borrar" aria-label="Borrar serie">✕</button>' +
@@ -496,7 +498,7 @@ GYMAPP.entrenamiento = (function () {
     if (sesion.tipo === "gimnasio") {
       (sesion.ejercicios_realizados || []).forEach(function (er) {
         seriesPorEjercicio[er.ejercicio_id] = er.series.map(function (s) {
-          return { peso_kg: String(s.peso_kg), reps: String(s.reps) };
+          return { peso_kg: GYMAPP.util.formatearDecimal(s.peso_kg), reps: String(s.reps) };
         });
         /* Nombre y objetivo tal como se registraron (E5: snapshot de la
            sesión; si no tiene, la resolución de siempre). Sin datos: el
@@ -575,7 +577,7 @@ GYMAPP.entrenamiento = (function () {
   /* --- Helpers de datos --- */
 
   function formatearSeries(series) {
-    return series.map(function (s) { return s.peso_kg + "kg x" + s.reps; }).join(" · ");
+    return series.map(function (s) { return GYMAPP.util.formatearDecimal(s.peso_kg) + "kg x" + s.reps; }).join(" · ");
   }
 
   /* --- Eventos --- */
@@ -871,14 +873,19 @@ GYMAPP.entrenamiento = (function () {
     el.className = "mensaje " + (tipo || "info");
   }
 
+  /* Serie del formulario → números. Peso vacío = 0 (peso corporal), como
+     siempre; peso no numérico o negativo → NaN, que guardarSesion rechaza. */
+  function convertirSerie(s) {
+    var peso = String(s.peso_kg).trim() === "" ? 0 : GYMAPP.util.parsearDecimal(s.peso_kg);
+    return { peso_kg: peso, reps: parseInt(s.reps, 10) || 0 };
+  }
+
   function construirEjerciciosRealizados(dia) {
     var resultado = [];
     dia.ejercicios.forEach(function (ej) {
       var seriesValidas = (estado.seriesPorEjercicio[ej.id] || [])
         .filter(function (s) { return s.peso_kg !== "" || s.reps !== ""; })
-        .map(function (s) {
-          return { peso_kg: parseFloat(s.peso_kg) || 0, reps: parseInt(s.reps, 10) || 0 };
-        });
+        .map(convertirSerie);
       if (seriesValidas.length) {
         resultado.push({ ejercicio_id: ej.id, series: seriesValidas });
       }
@@ -895,9 +902,7 @@ GYMAPP.entrenamiento = (function () {
     ejerciciosHistoricos.forEach(function (eh) {
       var seriesValidas = (estado.seriesPorEjercicio[eh.ejercicio_id] || [])
         .filter(function (s) { return s.peso_kg !== "" || s.reps !== ""; })
-        .map(function (s) {
-          return { peso_kg: parseFloat(s.peso_kg) || 0, reps: parseInt(s.reps, 10) || 0 };
-        });
+        .map(convertirSerie);
       if (seriesValidas.length) {
         resultado.push({ ejercicio_id: eh.ejercicio_id, series: seriesValidas });
       }
@@ -995,6 +1000,13 @@ GYMAPP.entrenamiento = (function () {
 
       if (!ejerciciosRealizados.length) {
         mostrarMensaje(container, "Cargá al menos una serie antes de guardar.", "error");
+        return;
+      }
+      var pesoInvalido = ejerciciosRealizados.some(function (er) {
+        return er.series.some(function (x) { return isNaN(x.peso_kg); });
+      });
+      if (pesoInvalido) {
+        mostrarMensaje(container, "Revisá los pesos: usá solo números, por ejemplo 42,5.", "error");
         return;
       }
       sesion.ejercicios_realizados = ejerciciosRealizados;

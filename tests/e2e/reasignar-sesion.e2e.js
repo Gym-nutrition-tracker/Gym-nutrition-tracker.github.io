@@ -164,7 +164,7 @@ function datosIniciales() {
     await page.click('[data-accion="editar-sesion"][data-sesion-id="S"]');
     const encabezados = await page.$$eval(".ejercicio-entrenar-card .ejercicio-entrenar-header", (h) => h.map((x) => x.textContent));
     check("edición: ejercicios y prescripción de B", encabezados[0].includes("Press Inclinado en Smith") && encabezados[0].includes("4 × 8") && encabezados[2].includes("Fondos en paralelas"), encabezados);
-    check("edición: mismos pesos", (await page.$eval('.ejercicio-entrenar-card[data-ejercicio-id="' + inc + '"] .input-serie-peso >> nth=1', (i) => i.value).catch(() => page.$$eval('.ejercicio-entrenar-card[data-ejercicio-id="' + inc + '"] .input-serie-peso', (i) => i[1].value))) === "42.5");
+    check("edición: mismos pesos", (await page.$eval('.ejercicio-entrenar-card[data-ejercicio-id="' + inc + '"] .input-serie-peso >> nth=1', (i) => i.value).catch(() => page.$$eval('.ejercicio-entrenar-card[data-ejercicio-id="' + inc + '"] .input-serie-peso', (i) => i[1].value))) === "42,5");
     await foto("06-edicion-despues", ".pantalla-entrenar");
 
     /* 6. Escape y click afuera cierran sin escribir. 320 px. */

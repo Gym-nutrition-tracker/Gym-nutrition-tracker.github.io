@@ -906,7 +906,7 @@ GYMAPP.progreso = (function () {
             motivo: "Las repeticiones todavía pueden crecer sin necesidad de aumentar la dificultad."
           }
         : {
-            sugerencia: "Mantené " + formatearKg(ctx.pesoMaximo) + " e intentá sumar 1–2 repeticiones totales o completar una repetición más en alguna serie.",
+            sugerencia: "Mantené " + formatearCargaKg(ctx.pesoMaximo) + " e intentá sumar 1–2 repeticiones totales o completar una repetición más en alguna serie.",
             motivo: "El rendimiento es estable o creciente y todavía hay margen antes de exigir más en el rango objetivo."
           };
     }
@@ -1975,7 +1975,7 @@ GYMAPP.progreso = (function () {
         });
       });
       var nombre = GYMAPP.rutinasHistoricas.resolverNombreEjercicioHistorico(data, o.id) + " · " +
-        (cargaMaxima > 0 ? "máx. " + formatearKg(cargaMaxima) : "peso corporal");
+        (cargaMaxima > 0 ? "máx. " + formatearCargaKg(cargaMaxima) : "peso corporal");
       vistas[nombre] = (vistas[nombre] || 0) + 1;
       if (vistas[nombre] > 1) nombre += " (" + vistas[nombre] + ")";
       return { id: o.id, nombre: nombre };
@@ -2001,6 +2001,12 @@ GYMAPP.progreso = (function () {
 
   function formatearKg(n) {
     return Math.round(n).toLocaleString("es-AR") + " kg";
+  }
+
+  /* Cargas (peso por serie): con decimales, sin redondear a entero
+     (42,5 kg, no 43). formatearKg queda para volúmenes. */
+  function formatearCargaKg(n) {
+    return n.toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " kg";
   }
 
   function formatearPct(n) {
@@ -2094,7 +2100,7 @@ GYMAPP.progreso = (function () {
   function filasVolumenEjercicio(datosSemana) {
     if (datosSemana.cantidadSesiones === 0) return [["Sesiones", "0"]];
     var filas = [
-      ["Peso máximo", formatearKg(datosSemana.pesoMaximo)],
+      ["Peso máximo", formatearCargaKg(datosSemana.pesoMaximo)],
       ["Reps totales", String(datosSemana.repsTotales)]
     ];
     if (datosSemana.cantidadSesiones === 1) {
@@ -2124,7 +2130,7 @@ GYMAPP.progreso = (function () {
 
   function filasUltimaSemanaRealizadaEjercicio(datosSemana) {
     var filas = [
-      ["Peso máximo", formatearKg(datosSemana.pesoMaximo)],
+      ["Peso máximo", formatearCargaKg(datosSemana.pesoMaximo)],
       ["Reps totales", String(datosSemana.repsTotales)]
     ];
     if (datosSemana.cantidadSesiones === 1) {
@@ -2537,7 +2543,7 @@ GYMAPP.progreso = (function () {
     if (principal.sinDatos || principal.pesoCorporal) {
       return repsPorSerie + " reps";
     }
-    return principal.cargaPrincipal.toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " kg · " + repsPorSerie;
+    return formatearCargaKg(principal.cargaPrincipal) + " · " + repsPorSerie;
   }
 
   function renderTarjetaProximaSesion(rec, datosUltimaEjecucion) {
