@@ -50,6 +50,7 @@ GYMAPP.rutina = (function () {
       (GYMAPP.sync ? GYMAPP.sync.renderSeccionSincronizacion() : "") +
       renderSeccionAyuda() +
       renderSeccionBackup() +
+      renderSeccionAcercaDe() +
       '<div id="rutina-modal"></div>' +
       "</div>"
     );
@@ -311,6 +312,24 @@ GYMAPP.rutina = (function () {
       '<button type="button" data-accion="importar-backup" class="btn btn-secundario">⬆️ Importar datos</button>' +
       '<input type="file" id="input-backup" accept="application/json,.json" style="display:none" />' +
       "</div>" +
+      "</div>"
+    );
+  }
+
+  /* "Acerca de": autoría del proyecto, solo en esta pantalla y visualmente
+     secundaria. Sin versión: la app no tiene un número de versión propio
+     (los ?v= de index.html son solo para la caché). Sin datos de cuenta. */
+  var INSTAGRAM_URL = "https://instagram.com/nico_olmedo";
+
+  function renderSeccionAcercaDe() {
+    return (
+      '<div class="seccion-acerca-de">' +
+      "<h3>Acerca de</h3>" +
+      '<p class="acerca-de-app">Gym &amp; Nutrition Tracker</p>' +
+      '<p class="nota">Proyecto personal sin fines de lucro</p>' +
+      '<p class="nota">Desarrollado por Nicolás Olmedo</p>' +
+      '<p class="nota">Instagram: <a href="' + INSTAGRAM_URL + '" target="_blank" rel="noopener noreferrer" class="acerca-de-enlace">@nico_olmedo</a></p>' +
+      '<p class="acerca-de-pie">Gym &amp; Nutrition Tracker · Nicolás Olmedo</p>' +
       "</div>"
     );
   }
@@ -967,6 +986,7 @@ GYMAPP.rutina = (function () {
     renderModalEditarPlan: renderModalEditarPlan,
     renderModalHistorialPlanes: renderModalHistorialPlanes,
     renderModalDetallePlan: renderModalDetallePlan,
+    renderSeccionAcercaDe: renderSeccionAcercaDe,
     textoVigencia: textoVigencia
   };
 })();

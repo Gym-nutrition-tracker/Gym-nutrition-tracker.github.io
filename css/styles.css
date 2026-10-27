@@ -1743,6 +1743,48 @@ body {
   color: var(--color-texto-secundario);
 }
 
+/* "Acerca de" (pantalla ⚙️): autoría, secundaria y al final. */
+.seccion-acerca-de {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-borde);
+}
+
+.seccion-acerca-de h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+  color: var(--color-texto-secundario);
+}
+
+.seccion-acerca-de p {
+  margin: 2px 0;
+}
+
+.acerca-de-app {
+  font-size: 0.9rem;
+  color: var(--color-texto);
+}
+
+.acerca-de-enlace {
+  color: var(--color-celeste);
+  text-decoration: none;
+}
+
+.acerca-de-enlace:hover,
+.acerca-de-enlace:focus-visible {
+  text-decoration: underline;
+}
+
+.seccion-acerca-de .acerca-de-pie {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-borde);
+  font-size: 0.72rem;
+  color: var(--color-texto-secundario);
+  opacity: 0.75;
+  text-align: center;
+}
+
 .backup-acciones {
   display: flex;
   gap: 8px;
