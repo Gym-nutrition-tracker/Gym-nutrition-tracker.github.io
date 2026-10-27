@@ -248,7 +248,7 @@ test("13-14. sin base64 ni referencias en el blob, sin escrituras locales; schem
 
 test("15. sync.js intacto (MD5) y sin secretos en el frontend", () => {
   const md5 = crypto.createHash("md5").update(fs.readFileSync(path.join(RAIZ, "js/sync.js"))).digest("hex");
-  assert.equal(md5, "f8121c5873c77c605d7ae99b32963831");
+  assert.equal(md5, "4ed9478ca49c4a26e86a6c5710761024");
   const texto = ["index.html", ...fs.readdirSync(path.join(RAIZ, "js")).map((f) => "js/" + f)].map((f) => fs.readFileSync(path.join(RAIZ, f), "utf8")).join("\n");
   assert.doesNotMatch(texto, /sb_secret_|GOCSPX-|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}/, "ni secret key, ni Client Secret, ni JWT (service_role)");
 });

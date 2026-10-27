@@ -310,5 +310,5 @@ test("19. no hay secretos en el código: ni service_role, ni Client Secret de Go
 
 test("20. sync.js sin cambios (MD5)", () => {
   const md5 = crypto.createHash("md5").update(fs.readFileSync(path.join(RAIZ, "js/sync.js"))).digest("hex");
-  assert.equal(md5, "f8121c5873c77c605d7ae99b32963831");
+  assert.equal(md5, "4ed9478ca49c4a26e86a6c5710761024");
 });

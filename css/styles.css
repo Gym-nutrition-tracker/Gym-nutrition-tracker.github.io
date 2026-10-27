@@ -2786,6 +2786,38 @@ body.guia-activa .bottom-nav {
   line-height: 1.4;
 }
 
+/* --- Recuperación inicial: "Encontramos tus datos" (antes del perfil) --- */
+.recuperacion-etiqueta {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-celeste);
+}
+
+.recuperacion-resumen {
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--color-texto-secundario);
+}
+
+.recuperacion-resumen li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.pantalla-recuperacion .btn + .btn {
+  margin-top: 10px;
+}
+
+.pantalla-recuperacion .btn-enlace {
+  display: block;
+  margin: 12px auto 0;
+}
+
 /* --- PROFILE-01: foto de perfil --- */
 .avatar {
   flex: none;

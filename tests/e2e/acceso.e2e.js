@@ -60,7 +60,12 @@ window.supabase = { createClient: function (url, key, opts) {
       return Promise.resolve({ data: { provider: p.provider, url: "https://proyecto.supabase.co/auth/v1/authorize" }, error: null });
     }
   },
-  from: function () { throw new Error("sync no debe correr en este e2e"); },
+  /* Solo lectura de datos_usuario (recuperación inicial): sin copia en la
+     nube salvo cfg.filaNube. Cualquier escritura (RPC) sigue siendo error. */
+  from: function (tabla) { return { select: function (cols) { return { maybeSingle: function () {
+    registrar("select", { tabla: tabla, cols: cols });
+    return Promise.resolve({ data: cfg.filaNube || null, error: null });
+  } }; } }; },
   rpc: function () { throw new Error("sync no debe correr en este e2e"); } };
 } };`;
 

@@ -662,6 +662,43 @@ GYMAPP.sync = (function () {
       });
   }
 
+  /* Pasos 5 a 8 de "Recuperar desde la nube", sin UI, para que los use
+     también la pantalla "Encontramos tus datos" (js/recuperacionInicial.js)
+     sin una segunda implementación: valida y migra la fila remota, crea el
+     backup local previo, guarda con GYMAPP.storage y registra la baseline
+     de sincronización. Solo escribe en este dispositivo; nunca en la nube.
+     Devuelve { ok: true } o { ok: false, mensaje }. */
+  function aplicarRestauracion(fila, userId) {
+    var dataValidada;
+    try {
+      dataValidada = validarYMigrarPayloadRemoto(fila);
+    } catch (errorValidacion) {
+      return { ok: false, mensaje: errorValidacion.message };
+    }
+
+    var datosLocalesActuales = GYMAPP.storage.getData();
+    var backupCreado = crearBackupLocalPreRestore(datosLocalesActuales, fila.revision);
+    if (!backupCreado) {
+      return { ok: false, mensaje: "No se pudo crear una copia de seguridad local antes de restaurar. No se modificaron tus datos." };
+    }
+
+    var guardadoExitoso = GYMAPP.storage.save(dataValidada, { alertaAutomatica: false });
+    if (!guardadoExitoso) {
+      return { ok: false, mensaje: "No se pudo restaurar: falló el guardado local. Tus datos anteriores se conservan intactos." };
+    }
+
+    /* SYNC-03: este dispositivo quedó con los datos de `fila.revision`,
+       así que esa pasa a ser su baseline. Solo después del guardado
+       exitoso; si falla, la próxima "Sincronizar ahora" compara datos y
+       adopta la baseline sola (nunca sube nada a ciegas). */
+    var revisionRestaurada = normalizarRevision(fila.revision);
+    if (userId && revisionRestaurada != null) {
+      guardarSyncMeta(userId, revisionRestaurada);
+    }
+    estadoSync.conflicto = null;
+    return { ok: true };
+  }
+
   /* Flujo completo de "Recuperar desde la nube" (SYNC-02):
        1. Consultar la fila remota (nunca automática, solo al tocar el botón).
        2. Si no hay fila remota, avisar y terminar sin tocar nada local.
@@ -717,43 +754,13 @@ GYMAPP.sync = (function () {
           return;
         }
 
-        var dataValidada;
-        try {
-          dataValidada = validarYMigrarPayloadRemoto(fila);
-        } catch (errorValidacion) {
-          estadoSync.restaurando = false;
-          actualizarBotones(container);
-          mostrarMensajeSync(container, errorValidacion.message, "error");
-          return;
-        }
-
-        var datosLocalesActuales = GYMAPP.storage.getData();
-        var backupCreado = crearBackupLocalPreRestore(datosLocalesActuales, fila.revision);
-        if (!backupCreado) {
-          estadoSync.restaurando = false;
-          actualizarBotones(container);
-          mostrarMensajeSync(container, "No se pudo crear una copia de seguridad local antes de restaurar. No se modificaron tus datos.", "error");
-          return;
-        }
-
-        var guardadoExitoso = GYMAPP.storage.save(dataValidada, { alertaAutomatica: false });
+        var restauracion = aplicarRestauracion(fila, userIdRestauracion);
         estadoSync.restaurando = false;
         actualizarBotones(container);
-
-        if (!guardadoExitoso) {
-          mostrarMensajeSync(container, "No se pudo restaurar: falló el guardado local. Tus datos anteriores se conservan intactos.", "error");
+        if (!restauracion.ok) {
+          mostrarMensajeSync(container, restauracion.mensaje, "error");
           return;
         }
-
-        /* SYNC-03: este dispositivo quedó con los datos de `fila.revision`,
-           así que esa pasa a ser su baseline. Solo después del guardado
-           exitoso; si falla, la próxima "Sincronizar ahora" compara datos y
-           adopta la baseline sola (nunca sube nada a ciegas). */
-        var revisionRestaurada = normalizarRevision(fila.revision);
-        if (userIdRestauracion && revisionRestaurada != null) {
-          guardarSyncMeta(userIdRestauracion, revisionRestaurada);
-        }
-        estadoSync.conflicto = null;
 
         mostrarMensajeSync(container, "Datos restaurados correctamente. Recargando la app...", "exito");
         setTimeout(function () { window.location.reload(); }, 1200);
@@ -935,6 +942,8 @@ GYMAPP.sync = (function () {
     subirPrimeraVez: subirPrimeraVez,
     obtenerDatosRemotos: obtenerDatosRemotos,
     validarYMigrarPayloadRemoto: validarYMigrarPayloadRemoto,
+    /* Restauración sin UI (la usa la pantalla "Encontramos tus datos"). */
+    aplicarRestauracion: aplicarRestauracion,
     sincronizarAhora: sincronizarAhora,
     conservarLocalYActualizar: conservarLocalYActualizar,
     leerSyncMeta: leerSyncMeta,

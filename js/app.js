@@ -8,7 +8,11 @@
                                      sin sesión se muestra la pantalla de
                                      acceso (Google, email o "Seguir sin
                                      cuenta")
-     sin perfil local              → onboarding de perfil
+     sin perfil local, con sesión  → si la cuenta tiene copia en la nube
+                                     (consulta SOLO LECTURA): "Encontramos
+                                     tus datos" (recuperar / empezar de
+                                     cero); si no, onboarding de perfil
+     sin perfil local, sin sesión  → onboarding de perfil
      con perfil                    → shell (y ONB-03 si corresponde)
    La cuenta nunca es obligatoria: sin Supabase disponible se entra directo
    en modo local, como antes. */
@@ -25,12 +29,16 @@ GYMAPP.app = (function () {
   var tabActual = "dashboard";
 
   /* AUTH-04: estado del arranque, solo en memoria (nada se persiste).
-     vista: "cargando" | "acceso" | "perfil" | "app". */
+     vista: "cargando" | "acceso" | "buscando-nube" | "recuperar" |
+     "perfil" | "app". */
   var accesoResuelto = false;
   var vista = null;
   var habiaSesion = false;
   var escuchandoSesion = false;
   var errorOAuthMostrado = false;
+  /* "Empezar de cero" en la pantalla de recuperación: no volver a
+     ofrecerla en esta carga (solo memoria; la nube no se toca). */
+  var omitirRecuperacion = false;
   /* Si Supabase no responde (por ejemplo, sin red con un token vencido),
      no se espera más que esto para mostrar el acceso. */
   var ESPERA_MAXIMA_SESION_MS = 4000;
@@ -64,12 +72,81 @@ GYMAPP.app = (function () {
   function continuar() {
     var data = GYMAPP.storage.getData();
     if (!data.usuario) {
-      vista = "perfil";
-      GYMAPP.onboarding.render(root());
+      if (debeBuscarCopiaNube(data)) {
+        buscarCopiaNube();
+        return;
+      }
+      mostrarPerfil();
       return;
     }
     vista = "app";
     renderShell(data);
+  }
+
+  function mostrarPerfil() {
+    vista = "perfil";
+    GYMAPP.onboarding.render(root());
+  }
+
+  /* Solo con sesión (nunca en "Seguir sin cuenta") y sin datos locales
+     útiles: ahí se consulta si la cuenta ya tiene una copia en la nube. */
+  function debeBuscarCopiaNube(data) {
+    var R = GYMAPP.recuperacionInicial;
+    return !omitirRecuperacion && !!R && !!GYMAPP.sync && !!GYMAPP.auth &&
+      tieneUsuario(GYMAPP.auth.obtenerSesion()) && !R.hayDatosLocalesUtiles(data);
+  }
+
+  /* Consulta de solo lectura; ninguna escritura en la nube hasta que el
+     usuario decida (y aun así, recuperar solo escribe en este dispositivo). */
+  function buscarCopiaNube() {
+    vista = "buscando-nube";
+    root().innerHTML = '<div class="pantalla pantalla-cargando" role="status"><p class="nota">Buscando tus datos…</p></div>';
+    GYMAPP.recuperacionInicial.consultar().then(function (estado) {
+      if (vista !== "buscando-nube") return;
+      if (estado.estado === "sin_datos") mostrarPerfil();
+      else mostrarRecuperacion(estado);
+    });
+  }
+
+  function mostrarRecuperacion(estado) {
+    var R = GYMAPP.recuperacionInicial;
+    vista = "recuperar";
+    var opciones = {};
+    root().innerHTML = '<div id="recuperacion"></div>';
+    var cont = document.getElementById("recuperacion");
+    var pintar = function () { cont.innerHTML = R.render(estado, opciones); };
+    pintar();
+    cont.addEventListener("click", function (ev) {
+      var boton = ev.target.closest("[data-accion]");
+      if (!boton || boton.disabled || vista !== "recuperar") return;
+      var accion = boton.dataset.accion;
+      if (accion === "recuperacion-recuperar") {
+        opciones = { cargando: true };
+        pintar();
+        var sesion = GYMAPP.auth.obtenerSesion();
+        R.recuperar(sesion && sesion.user ? sesion.user.id : null).then(function (r) {
+          if (vista !== "recuperar") return;
+          if (r.ok) {
+            omitirRecuperacion = true;
+            continuar();
+            return;
+          }
+          opciones = { mensaje: r.mensaje };
+          pintar();
+        });
+      } else if (accion === "recuperacion-cero") {
+        opciones = { confirmarCero: true };
+        pintar();
+      } else if (accion === "recuperacion-volver") {
+        opciones = {};
+        pintar();
+      } else if (accion === "recuperacion-continuar-cero") {
+        omitirRecuperacion = true;
+        mostrarPerfil();
+      } else if (accion === "recuperacion-reintentar") {
+        buscarCopiaNube();
+      }
+    });
   }
 
   function tieneUsuario(sesion) {
@@ -106,7 +183,7 @@ GYMAPP.app = (function () {
     var hay = tieneUsuario(sesion);
     if (vista === "acceso" && hay) {
       entrar();
-    } else if ((vista === "app" || vista === "perfil") && habiaSesion && !hay) {
+    } else if ((vista === "app" || vista === "perfil" || vista === "recuperar" || vista === "buscando-nube") && habiaSesion && !hay) {
       accesoResuelto = false;
       mostrarAcceso();
     }
@@ -126,6 +203,7 @@ GYMAPP.app = (function () {
 
   function mostrarAcceso() {
     vista = "acceso";
+    omitirRecuperacion = false;
     tabActual = "dashboard";
     if (GYMAPP.primerUso && GYMAPP.primerUso.guiaAbierta()) GYMAPP.primerUso.cerrarGuia();
     root().innerHTML = '<div id="acceso"></div>';
