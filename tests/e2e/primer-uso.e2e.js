@@ -121,9 +121,9 @@ function unaSesion() { const d = historial(); d.sesiones_entrenamiento = d.sesio
 
     /* Dashboard sin plan. */
     check("A. Dashboard: 'Empezá configurando tu entrenamiento'", (await p.texto("#primer-uso-titulo")) === "Empezá configurando tu entrenamiento");
-    check("A. Dashboard: tarjeta arriba de todo (después del saludo)", await p.evaluate(() => {
-      const c = document.querySelector(".primer-uso-card"), h = document.querySelector("#tab-content h1, #tab-content h2");
-      return !!c && c.previousElementSibling === h;
+    check("A. Dashboard: tarjeta arriba de todo (sin saludo duplicado)", await p.evaluate(() => {
+      const c = document.querySelector(".primer-uso-card");
+      return !!c && c.parentElement.classList.contains("pantalla-dashboard") && c.previousElementSibling === null && !document.querySelector("#tab-content h1");
     }));
     check("A. Dashboard: 3 pasos", (await p.$$eval(".primer-uso-pasos li", (l) => l.map((x) => x.textContent))).join("|") === "Cargá tu plan|Registrá tu primer entrenamiento|Seguimos tu progreso automáticamente");
     check("A. Dashboard: CTA 'Importar plan desde PDF'", (await p.texto('[data-accion="inicio-importar-pdf"]')) === "Importar plan desde PDF");

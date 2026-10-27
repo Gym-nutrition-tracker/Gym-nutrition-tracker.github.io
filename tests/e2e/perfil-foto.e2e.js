@@ -112,6 +112,9 @@ function servir(dir) {
     p.llamadas = () => p.evaluate(() => JSON.parse(sessionStorage.getItem("__fake") || "[]"));
     p.texto = (sel) => p.$eval(sel, (n) => n.textContent.replace(/\s+/g, " ").trim());
     p.hay = async (sel) => (await p.$(sel)) !== null;
+    /* Saludos visibles en toda la pantalla (encabezado + Dashboard). */
+    p.saludos = () => p.evaluate(() => (document.body.innerText.match(/Hola,/g) || []).length);
+    p.enDashboard = () => p.evaluate(() => !!document.querySelector("#tab-content .pantalla-dashboard"));
     p.sinScroll = () => p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     p.foto = async (n, sel) => {
       if (!CAPTURAS) return;
@@ -142,6 +145,7 @@ function servir(dir) {
     let p = await abrir({ datos });
     await seguirSinCuenta(p);
     check("sin cuenta: encabezado sin avatar (igual que antes)", !(await p.hay(".app-header .avatar")) && /^Hola, /.test(await p.texto(".app-header span")));
+    check("sin cuenta: Dashboard con un solo saludo (el del encabezado)", (await p.enDashboard()) && (await p.saludos()) === 1 && !(await p.hay("#tab-content h1")), await p.saludos());
     await p.click("#btn-rutina");
     check("sin cuenta: Cuenta ofrece iniciar sesión, sin bloque de foto", (await p.hay(".seccion-cuenta #input-email-cuenta")) && !(await p.hay("[data-perfil-foto]")));
     check("sin cuenta: cero llamadas a Storage", (await p.llamadas()).length === 0);
@@ -151,6 +155,7 @@ function servir(dir) {
     p = await abrir({ datos, sesion: sesion() });
     await p.waitForSelector(".app-shell");
     check("con cuenta: avatar chico en el encabezado con la inicial", (await p.texto(".app-header .avatar-chico")) === "A");
+    check("con cuenta sin foto: Dashboard con un solo saludo", (await p.enDashboard()) && (await p.saludos()) === 1, await p.saludos());
     await p.click("#btn-rutina");
     await p.waitForSelector("[data-perfil-foto]");
     check("Cuenta: avatar grande con inicial (fallback)", (await p.texto("[data-perfil-foto] .avatar-grande")) === "A" && !(await p.hay("[data-perfil-foto] img")));
@@ -198,6 +203,12 @@ function servir(dir) {
     await p.reload();
     await p.waitForSelector(".app-shell .app-header .avatar-con-foto img");
     check("recargar: el encabezado muestra la foto (signed URL)", true);
+    check("con cuenta + foto: Dashboard con un solo 'Hola, …' (encabezado)", (await p.enDashboard()) && (await p.saludos()) === 1 && /^Hola, /.test(await p.texto(".app-header-saludo > span:last-child")), await p.saludos());
+    check("Dashboard: la primera tarjeta es 'Meta semanal'", await p.evaluate(() => {
+      const d = document.querySelector("#tab-content .pantalla-dashboard");
+      return !!d && /^Meta semanal/i.test(d.firstElementChild.innerText.trim());
+    }));
+    await p.foto("00-dashboard-un-saludo");
     await p.click("#btn-rutina");
     await p.waitForSelector("[data-perfil-foto] .avatar-con-foto img");
     check("recargar: Cuenta muestra la foto y 'Eliminar foto'", await p.hay('[data-accion="perfil-foto-eliminar"]'));

@@ -1821,30 +1821,6 @@ body {
   background: var(--color-superficie);
 }
 
-.saludo-dashboard {
-  font-size: 1.5rem;
-  margin: 0 0 16px;
-}
-
-/* Monograma de marca (BRAND-01): versión tipográfica simple, sin asset,
-   ubicado de forma sutil junto al saludo del Dashboard. */
-.marca-monograma {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-right: 8px;
-  border-radius: 7px;
-  background: var(--color-primario);
-  color: var(--color-celeste);
-  font-family: var(--fuente-titulos);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  vertical-align: middle;
-}
-
 /* Hero semanal (DASH-07/08): bloque principal con protagonismo visual al
    abrir el Dashboard. Gradiente sutil sobre --color-superficie, dentro de
    la misma paleta de marca (azul/celeste), sin introducir colores nuevos. */

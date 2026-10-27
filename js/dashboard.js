@@ -195,7 +195,7 @@ GYMAPP.dashboard = (function () {
 
     return (
       '<div class="pantalla pantalla-dashboard">' +
-      '<h1 class="saludo-dashboard"><span class="marca-monograma" aria-hidden="true">NO</span>¡Hola, ' + esc(data.usuario.nombre) + "!</h1>" +
+      /* El saludo vive solo en el encabezado (con el avatar de PROFILE-01). */
       /* ONB-03: tarjeta de inicio (solo sin plan o sin entrenamientos). */
       (GYMAPP.primerUso ? GYMAPP.primerUso.renderTarjetaDashboard(data) : "") +
       renderHeroSemanal(progresoSemanal) +
